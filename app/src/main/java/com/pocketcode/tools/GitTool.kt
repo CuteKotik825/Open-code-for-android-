@@ -11,6 +11,19 @@ import java.io.File
 
 private val READ_ONLY_ACTIONS = setOf("status", "log", "branch", "diff")
 
+object GitOps {
+    /** Клонирование; общее для инструмента git и экрана проектов. */
+    fun clone(url: String, target: File, token: String, homeDir: File) {
+        runCatching {
+            homeDir.mkdirs()
+            FS.DETECTED.setUserHome(homeDir)
+        }
+        val cmd = Git.cloneRepository().setURI(url).setDirectory(target)
+        if (token.isNotBlank()) cmd.setCredentialsProvider(UsernamePasswordCredentialsProvider(token, ""))
+        cmd.call().close()
+    }
+}
+
 /** Git на чистой Java (JGit): внешние программы не нужны. */
 class GitTool(
     private val ws: Workspace,

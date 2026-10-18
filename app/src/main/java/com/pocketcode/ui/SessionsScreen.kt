@@ -88,7 +88,7 @@ fun SessionsScreen(vm: ChatController, onBack: () -> Unit) {
                                     style = MaterialTheme.typography.bodyLarge,
                                 )
                                 Text(
-                                    format.format(Date(meta.updatedAt)),
+                                    meta.project.ifBlank { "main" } + " · " + format.format(Date(meta.updatedAt)),
                                     style = MaterialTheme.typography.labelSmall,
                                 )
                             }

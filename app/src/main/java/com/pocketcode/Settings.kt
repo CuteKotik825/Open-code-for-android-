@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 enum class Provider(val label: String, val defaultBaseUrl: String, val defaultModel: String) {
     ANTHROPIC("Anthropic (Claude)", "https://api.anthropic.com", "claude-sonnet-5-5"),
@@ -21,6 +24,8 @@ data class Settings(
     val autoApprove: Boolean = false,
     val contextTokens: Int = 128_000,
 )
+
+const val DEFAULT_PROJECT = "main"
 
 class SettingsStore(context: Context) {
     private val prefs: SharedPreferences = try {
@@ -54,6 +59,30 @@ class SettingsStore(context: Context) {
             autoApprove = prefs.getBoolean("autoApprove", false),
             contextTokens = prefs.getInt("contextTokens", d.contextTokens),
         )
+    }
+
+    fun loadProject(): String = prefs.getString("project", null) ?: DEFAULT_PROJECT
+
+    fun saveProject(name: String) {
+        prefs.edit().putString("project", name).apply()
+    }
+
+    /** true — проекты в общей папке PocketCode, видимой в файловых менеджерах. */
+    fun loadSharedStorage(): Boolean = prefs.getBoolean("sharedStorage", false)
+
+    fun saveSharedStorage(shared: Boolean) {
+        prefs.edit().putBoolean("sharedStorage", shared).apply()
+    }
+
+    /** Существующие папки на телефоне, добавленные как проекты: имя -> путь. */
+    fun loadExternalProjects(): Map<String, String> = try {
+        Json.decodeFromString<Map<String, String>>(prefs.getString("externalProjects", null) ?: "{}")
+    } catch (e: Exception) {
+        emptyMap()
+    }
+
+    fun saveExternalProjects(map: Map<String, String>) {
+        prefs.edit().putString("externalProjects", Json.encodeToString(map)).apply()
     }
 
     fun save(s: Settings) {

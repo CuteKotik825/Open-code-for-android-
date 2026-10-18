@@ -1,9 +1,12 @@
 package com.pocketcode
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings as AndroidSettings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -23,10 +26,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.pocketcode.ui.ChatController
 import com.pocketcode.ui.ChatScreen
+import com.pocketcode.ui.FileActions
+import com.pocketcode.ui.ProjectsScreen
 import com.pocketcode.ui.SessionsScreen
 import com.pocketcode.ui.SettingsScreen
 
-private enum class Screen { CHAT, SETTINGS, SESSIONS }
+private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS }
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
@@ -35,10 +40,40 @@ class MainActivity : ComponentActivity() {
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    private val legacyStoragePermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { controller.refreshStoragePermission() }
+
+    private val pickFiles =
+        registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+            controller.importFiles(uris)
+        }
+
+    private val pickFolderToImport =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) controller.importFolder(uri)
+        }
+
+    private val pickFolderAsProject =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) controller.addExternalFolder(uri)
+        }
+
+    private val exportZip =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+            if (uri != null) controller.exportZip(uri)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestNotificationPermission()
         val vm = controller
+        val actions = FileActions(
+            pickFiles = { pickFiles.launch(arrayOf("*/*")) },
+            pickFolderToImport = { pickFolderToImport.launch(null) },
+            exportZip = { project -> exportZip.launch("$project.zip") },
+            pickFolderAsProject = { pickFolderAsProject.launch(null) },
+            requestStorageAccess = { requestStorageAccess() },
+        )
         setContent {
             AppTheme {
                 var screen by remember { mutableStateOf(Screen.CHAT) }
@@ -47,6 +82,7 @@ class MainActivity : ComponentActivity() {
                         vm,
                         onOpenSettings = { screen = Screen.SETTINGS },
                         onOpenSessions = { screen = Screen.SESSIONS },
+                        onOpenProjects = { screen = Screen.PROJECTS },
                     )
                     Screen.SETTINGS -> {
                         BackHandler { screen = Screen.CHAT }
@@ -55,6 +91,10 @@ class MainActivity : ComponentActivity() {
                             onSave = { vm.saveSettings(it) },
                             onBack = { screen = Screen.CHAT },
                         )
+                    }
+                    Screen.PROJECTS -> {
+                        BackHandler { screen = Screen.CHAT }
+                        ProjectsScreen(vm, actions, onBack = { screen = Screen.CHAT })
                     }
                     Screen.SESSIONS -> {
                         BackHandler { screen = Screen.CHAT }
@@ -70,9 +110,28 @@ class MainActivity : ComponentActivity() {
         controller.appVisible = true
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Пользователь мог выдать доступ к файлам в системных настройках
+        controller.refreshStoragePermission()
+    }
+
     override fun onStop() {
         controller.appVisible = false
         super.onStop()
+    }
+
+    private fun requestStorageAccess() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            val uri = Uri.parse("package:$packageName")
+            try {
+                startActivity(Intent(AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, uri))
+            } catch (e: Exception) {
+                startActivity(Intent(AndroidSettings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            }
+        } else {
+            legacyStoragePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
     }
 
     private fun requestNotificationPermission() {

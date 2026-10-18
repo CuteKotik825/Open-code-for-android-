@@ -57,10 +57,13 @@ fun JsonObject.need(key: String): String =
     str(key) ?: throw IllegalArgumentException("Не указан обязательный параметр «$key»")
 
 /** Рабочая папка агента. Файловые инструменты не выходят за её пределы. */
-class Workspace(val root: File) {
-    init {
-        root.mkdirs()
-    }
+class Workspace(initialRoot: File) {
+    /** Корень текущего проекта; меняется при переключении проекта. */
+    var root: File = initialRoot.also { it.mkdirs() }
+        set(value) {
+            value.mkdirs()
+            field = value
+        }
 
     fun resolve(path: String): File {
         val f = if (path.startsWith("/")) File(path) else File(root, path)

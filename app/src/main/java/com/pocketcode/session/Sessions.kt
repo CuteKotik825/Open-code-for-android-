@@ -37,7 +37,7 @@ sealed class UiItem {
 }
 
 @Serializable
-data class SessionMeta(val id: String, val title: String, val updatedAt: Long)
+data class SessionMeta(val id: String, val title: String, val updatedAt: Long, val project: String = "")
 
 @Serializable
 data class SessionData(
@@ -46,6 +46,7 @@ data class SessionData(
     val updatedAt: Long,
     val items: List<UiItem>,
     val history: List<Message>,
+    val project: String = "",
 )
 
 /** Хранит сессии в файлах: index.json (список) и <id>.json (содержимое). */
@@ -75,7 +76,7 @@ class SessionStore(private val dir: File) {
         withContext(Dispatchers.IO) {
             dir.mkdirs()
             writeAtomic(File(dir, "${data.id}.json"), json.encodeToString(data))
-            val index = list().filter { it.id != data.id } + SessionMeta(data.id, data.title, data.updatedAt)
+            val index = list().filter { it.id != data.id } + SessionMeta(data.id, data.title, data.updatedAt, data.project)
             writeAtomic(indexFile, json.encodeToString(index))
         }
     }

@@ -50,7 +50,12 @@ import com.pocketcode.session.UiItem
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(vm: ChatController, onOpenSettings: () -> Unit, onOpenSessions: () -> Unit) {
+fun ChatScreen(
+    vm: ChatController,
+    onOpenSettings: () -> Unit,
+    onOpenSessions: () -> Unit,
+    onOpenProjects: () -> Unit,
+) {
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -61,7 +66,11 @@ fun ChatScreen(vm: ChatController, onOpenSettings: () -> Unit, onOpenSessions: (
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("PocketCode") },
+                title = {
+                    TextButton(onClick = onOpenProjects) {
+                        Text("📁 " + vm.currentProject, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                },
                 actions = {
                     IconButton(onClick = { vm.newChat() }) {
                         Icon(Icons.Filled.Add, contentDescription = "Новый чат")
@@ -187,7 +196,7 @@ private fun ItemView(item: UiItem) {
             }
         }
         is UiItem.Assistant -> SelectionContainer {
-            Text(item.text, modifier = Modifier.fillMaxWidth())
+            MarkdownText(item.text, modifier = Modifier.fillMaxWidth())
         }
         is UiItem.Tool -> Card(
             colors = CardDefaults.cardColors(
