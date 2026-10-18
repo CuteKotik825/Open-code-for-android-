@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonObject
 class PythonTool(private val ws: Workspace, private val runner: PythonRunner) : Tool {
     override val name = "python"
     override val description =
-        "Запускает Python 3.12, встроенный в приложение. Передай code (фрагмент) или file (путь к .py в проекте). " +
+        "Запускает Python 3.11, встроенный в приложение. Передай code (фрагмент) или file (путь к .py в проекте). " +
             "Рабочая папка запуска — корень проекта. Доступна только стандартная библиотека (urllib, json, re, " +
             "sqlite3, unittest и т.д.); pip install и сторонние пакеты недоступны. Ввод с клавиатуры не поддерживается."
     override val schema = objSchema(
