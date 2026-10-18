@@ -149,12 +149,12 @@ fun ProjectsScreen(vm: ChatController, actions: FileActions, onBack: () -> Unit)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = !vm.storageShared,
-                    onClick = { vm.setStorageShared(false) },
+                    onClick = { vm.selectStorage(false) },
                     label = { Text("Внутри приложения") },
                 )
                 FilterChip(
                     selected = vm.storageShared,
-                    onClick = { vm.setStorageShared(true) },
+                    onClick = { vm.selectStorage(true) },
                     label = { Text("Папка PocketCode") },
                 )
             }

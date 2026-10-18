@@ -274,7 +274,7 @@ class ChatController(private val app: Application) {
     }
 
     /** Переключение между приватной папкой приложения и общей папкой PocketCode. */
-    fun setStorageShared(shared: Boolean) {
+    fun selectStorage(shared: Boolean) {
         if (running) {
             projectMessage = "Дождись окончания работы агента или нажми «Стоп»."
             return
