@@ -19,6 +19,7 @@ data class Settings(
     val gitName: String = "PocketCode",
     val gitEmail: String = "pocketcode@users.noreply.github.com",
     val autoApprove: Boolean = false,
+    val contextTokens: Int = 128_000,
 )
 
 class SettingsStore(context: Context) {
@@ -51,6 +52,7 @@ class SettingsStore(context: Context) {
             gitName = prefs.getString("gitName", null) ?: d.gitName,
             gitEmail = prefs.getString("gitEmail", null) ?: d.gitEmail,
             autoApprove = prefs.getBoolean("autoApprove", false),
+            contextTokens = prefs.getInt("contextTokens", d.contextTokens),
         )
     }
 
@@ -64,6 +66,7 @@ class SettingsStore(context: Context) {
             .putString("gitName", s.gitName.trim())
             .putString("gitEmail", s.gitEmail.trim())
             .putBoolean("autoApprove", s.autoApprove)
+            .putInt("contextTokens", s.contextTokens)
             .apply()
     }
 }

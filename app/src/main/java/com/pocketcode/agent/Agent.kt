@@ -23,6 +23,9 @@ sealed class AgentEvent {
     data class ToolCall(val name: String, val description: String) : AgentEvent()
     data class ToolResult(val name: String, val output: String, val isError: Boolean) : AgentEvent()
     data class Error(val message: String) : AgentEvent()
+
+    /** Служебное сообщение в ленте, например «контекст сжат». */
+    data class Notice(val text: String) : AgentEvent()
     object Done : AgentEvent()
 }
 
@@ -34,11 +37,14 @@ class Agent(
     private val tools: List<Tool>,
     private val system: String,
     private val autoApprove: Boolean,
+    /** Размер контекста модели в токенах: при заполнении ~70% старая часть истории сжимается. */
+    contextLimit: Int,
     /** Спрашивает пользователя: (имя инструмента, описание) -> разрешено ли. */
     private val approve: suspend (String, String) -> Boolean,
     /** История диалога для модели; общая с хранилищем сессий. */
     val history: MutableList<Message> = mutableListOf(),
 ) {
+    private val compactor = Compactor(llm, contextLimit)
     private val byName = tools.associateBy { it.name }
     private val specs = tools.map { ToolSpec(it.name, it.description, it.schema) }
 
@@ -58,10 +64,20 @@ class Agent(
         repairHistory()
         history += Message("user", listOf(Block.Text(text)))
         var steps = 0
+        var overflowRetried = false
         while (true) {
             if (++steps > MAX_STEPS) {
                 send(AgentEvent.Error("Достигнут лимит шагов ($MAX_STEPS). Напиши «продолжай», чтобы идти дальше."))
                 break
+            }
+            if (compactor.needsCompaction(history)) {
+                try {
+                    compactor.compact(history, force = false)?.let { send(AgentEvent.Notice(it)) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    send(AgentEvent.Notice("Не удалось сжать контекст: ${e.message ?: e}"))
+                }
             }
             val response = try {
                 llm.complete(system, history, specs) { delta -> trySend(AgentEvent.TextDelta(delta)) }
@@ -69,9 +85,25 @@ class Agent(
                 throw e
             } catch (e: Exception) {
                 send(AgentEvent.TextEnd)
+                if (!overflowRetried && Compactor.looksLikeOverflow(e.message)) {
+                    // Модель отказалась из-за размера контекста: сжимаем принудительно и повторяем
+                    overflowRetried = true
+                    try {
+                        val note = compactor.compact(history, force = true)
+                        if (note != null) {
+                            send(AgentEvent.Notice(note))
+                            continue
+                        }
+                    } catch (ce: CancellationException) {
+                        throw ce
+                    } catch (ce: Exception) {
+                        send(AgentEvent.Notice("Не удалось сжать контекст: ${ce.message ?: ce}"))
+                    }
+                }
                 send(AgentEvent.Error(e.message ?: e.toString()))
                 break
             }
+            overflowRetried = false
             history += Message("assistant", response.blocks)
             send(AgentEvent.TextEnd)
 

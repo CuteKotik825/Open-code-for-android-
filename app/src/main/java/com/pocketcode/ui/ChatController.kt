@@ -254,6 +254,11 @@ class ChatController(private val app: Application) {
                 streamingIndex = null
                 items += UiItem.Error(event.message)
             }
+            is AgentEvent.Notice -> {
+                streamingIndex = null
+                items += UiItem.Notice(event.text)
+                persist()
+            }
             AgentEvent.Done -> {
                 streamingIndex = null
             }
@@ -294,6 +299,7 @@ class ChatController(private val app: Application) {
             tools = tools,
             system = systemPrompt(workspace.root.absolutePath, shell.info),
             autoApprove = s.autoApprove,
+            contextLimit = s.contextTokens,
             approve = ::requestApproval,
             history = history,
         )

@@ -25,6 +25,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.pocketcode.Provider
@@ -41,6 +43,7 @@ fun SettingsScreen(initial: Settings, onSave: (Settings) -> Unit, onBack: () -> 
     var gitName by remember { mutableStateOf(initial.gitName) }
     var gitEmail by remember { mutableStateOf(initial.gitEmail) }
     var autoApprove by remember { mutableStateOf(initial.autoApprove) }
+    var contextTokens by remember { mutableStateOf(initial.contextTokens.toString()) }
 
     Scaffold(
         topBar = {
@@ -99,6 +102,20 @@ fun SettingsScreen(initial: Settings, onSave: (Settings) -> Unit, onBack: () -> 
                 style = MaterialTheme.typography.bodySmall,
             )
 
+            OutlinedTextField(
+                value = contextTokens,
+                onValueChange = { contextTokens = it.filter(Char::isDigit).take(8) },
+                label = { Text("Размер контекста модели, токенов") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "Когда история займёт около 70% этого размера, старая часть заменяется сводкой. " +
+                    "Для Claude можно 200000, для небольших моделей укажи меньше.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+
             Text("Git", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             OutlinedTextField(
                 value = githubToken,
@@ -147,6 +164,7 @@ fun SettingsScreen(initial: Settings, onSave: (Settings) -> Unit, onBack: () -> 
                             gitName = gitName,
                             gitEmail = gitEmail,
                             autoApprove = autoApprove,
+                            contextTokens = (contextTokens.toIntOrNull() ?: 128_000).coerceIn(8_000, 2_000_000),
                         ),
                     )
                     onBack()

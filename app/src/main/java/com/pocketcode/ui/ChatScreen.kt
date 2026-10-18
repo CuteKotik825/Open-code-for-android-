@@ -222,6 +222,14 @@ private fun ItemView(item: UiItem) {
                 }
             }
         }
+        is UiItem.Notice -> Text(
+            item.text,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+        )
         is UiItem.Error -> Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
             modifier = Modifier.fillMaxWidth(),

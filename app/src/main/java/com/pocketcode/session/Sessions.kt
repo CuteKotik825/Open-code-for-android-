@@ -30,6 +30,10 @@ sealed class UiItem {
 
     @Serializable
     data class Error(val text: String) : UiItem()
+
+    /** Служебная строка: сжатие контекста и т.п. */
+    @Serializable
+    data class Notice(val text: String) : UiItem()
 }
 
 @Serializable
