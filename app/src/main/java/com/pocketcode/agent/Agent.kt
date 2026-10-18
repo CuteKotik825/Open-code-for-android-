@@ -6,13 +6,20 @@ import com.pocketcode.llm.Message
 import com.pocketcode.llm.ToolSpec
 import com.pocketcode.tools.Tool
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
 
 sealed class AgentEvent {
-    data class Text(val text: String) : AgentEvent()
+    /** Очередной кусок текста ответа (потоковый вывод). */
+    data class TextDelta(val text: String) : AgentEvent()
+
+    /** Текущий ответ модели закончился, следующий текст начнётся в новом блоке. */
+    object TextEnd : AgentEvent()
+
     data class ToolCall(val name: String, val description: String) : AgentEvent()
     data class ToolResult(val name: String, val output: String, val isError: Boolean) : AgentEvent()
     data class Error(val message: String) : AgentEvent()
@@ -29,9 +36,9 @@ class Agent(
     private val autoApprove: Boolean,
     /** Спрашивает пользователя: (имя инструмента, описание) -> разрешено ли. */
     private val approve: suspend (String, String) -> Boolean,
+    /** История диалога для модели; общая с хранилищем сессий. */
+    val history: MutableList<Message> = mutableListOf(),
 ) {
-    val history = mutableListOf<Message>()
-
     private val byName = tools.associateBy { it.name }
     private val specs = tools.map { ToolSpec(it.name, it.description, it.schema) }
 
@@ -47,28 +54,27 @@ class Agent(
         )
     }
 
-    fun send(text: String): Flow<AgentEvent> = flow {
+    fun execute(text: String): Flow<AgentEvent> = channelFlow {
         repairHistory()
         history += Message("user", listOf(Block.Text(text)))
         var steps = 0
         while (true) {
             if (++steps > MAX_STEPS) {
-                emit(AgentEvent.Error("Достигнут лимит шагов ($MAX_STEPS). Напиши «продолжай», чтобы идти дальше."))
+                send(AgentEvent.Error("Достигнут лимит шагов ($MAX_STEPS). Напиши «продолжай», чтобы идти дальше."))
                 break
             }
             val response = try {
-                llm.complete(system, history, specs)
+                llm.complete(system, history, specs) { delta -> trySend(AgentEvent.TextDelta(delta)) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                emit(AgentEvent.Error(e.message ?: e.toString()))
+                send(AgentEvent.TextEnd)
+                send(AgentEvent.Error(e.message ?: e.toString()))
                 break
             }
             history += Message("assistant", response.blocks)
+            send(AgentEvent.TextEnd)
 
-            for (b in response.blocks) {
-                if (b is Block.Text && b.text.isNotBlank()) emit(AgentEvent.Text(b.text))
-            }
             val calls = response.blocks.filterIsInstance<Block.ToolUse>()
             if (calls.isEmpty()) break
 
@@ -76,7 +82,7 @@ class Agent(
             for (call in calls) {
                 val tool = byName[call.name]
                 val description = tool?.describe(call.input) ?: call.input.toString().take(200)
-                emit(AgentEvent.ToolCall(call.name, description))
+                send(AgentEvent.ToolCall(call.name, description))
 
                 var output = ""
                 var isError = false
@@ -99,13 +105,13 @@ class Agent(
                 if (output.length > MAX_TOOL_OUTPUT) {
                     output = output.take(MAX_TOOL_OUTPUT) + "\n... (вывод обрезан)"
                 }
-                emit(AgentEvent.ToolResult(call.name, output, isError))
+                send(AgentEvent.ToolResult(call.name, output, isError))
                 results += Block.ToolResult(call.id, output, isError)
             }
             history += Message("user", results)
         }
-        emit(AgentEvent.Done)
-    }
+        send(AgentEvent.Done)
+    }.buffer(Channel.UNLIMITED)
 }
 
 fun systemPrompt(workspacePath: String, shellInfo: String): String = """

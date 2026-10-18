@@ -1,14 +1,26 @@
 package com.pocketcode.llm
 
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
+@Serializable
 sealed class Block {
+    @Serializable
+    @SerialName("text")
     data class Text(val text: String) : Block()
+
+    @Serializable
+    @SerialName("tool_use")
     data class ToolUse(val id: String, val name: String, val input: JsonObject) : Block()
+
+    @Serializable
+    @SerialName("tool_result")
     data class ToolResult(val toolUseId: String, val content: String, val isError: Boolean) : Block()
 }
 
 /** role: "user" или "assistant" */
+@Serializable
 data class Message(val role: String, val blocks: List<Block>)
 
 data class ToolSpec(val name: String, val description: String, val schema: JsonObject)
@@ -16,5 +28,11 @@ data class ToolSpec(val name: String, val description: String, val schema: JsonO
 data class LlmResponse(val blocks: List<Block>, val stopReason: String?)
 
 interface LlmClient {
-    suspend fun complete(system: String, messages: List<Message>, tools: List<ToolSpec>): LlmResponse
+    /** onTextDelta вызывается из фонового потока по мере поступления текста. */
+    suspend fun complete(
+        system: String,
+        messages: List<Message>,
+        tools: List<ToolSpec>,
+        onTextDelta: (String) -> Unit,
+    ): LlmResponse
 }

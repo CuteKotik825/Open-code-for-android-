@@ -1,18 +1,17 @@
 package com.pocketcode.llm
 
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import java.io.IOException
+import java.util.TreeMap
 
 class AnthropicClient(
     private val baseUrl: String,
@@ -20,14 +19,24 @@ class AnthropicClient(
     private val model: String,
 ) : LlmClient {
 
+    private class Acc {
+        var type: String = ""
+        val text = StringBuilder()
+        var id: String = ""
+        var name: String = ""
+        val json = StringBuilder()
+    }
+
     override suspend fun complete(
         system: String,
         messages: List<Message>,
         tools: List<ToolSpec>,
+        onTextDelta: (String) -> Unit,
     ): LlmResponse {
         val body = buildJsonObject {
             put("model", model)
             put("max_tokens", 8192)
+            put("stream", true)
             put("system", system)
             putJsonArray("messages") {
                 for (m in messages) {
@@ -76,30 +85,71 @@ class AnthropicClient(
             }
         }
 
-        val url = baseUrl.trimEnd('/') + "/v1/messages"
-        val text = Http.postJson(
-            url,
-            mapOf(
-                "x-api-key" to apiKey,
-                "anthropic-version" to "2023-06-01",
-            ),
-            body.toString(),
-        )
+        val acc = TreeMap<Int, Acc>()
+        var stopReason: String? = null
 
-        val root = Json.parseToJsonElement(text).jsonObject
-        val content = root["content"] as? JsonArray ?: JsonArray(emptyList())
-        val blocks = content.mapNotNull { el ->
-            val o = el.jsonObject
-            when (o["type"]?.jsonPrimitive?.contentOrNull) {
-                "text" -> Block.Text(o["text"]?.jsonPrimitive?.contentOrNull.orEmpty())
-                "tool_use" -> Block.ToolUse(
-                    id = o["id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                    name = o["name"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                    input = o["input"] as? JsonObject ?: JsonObject(emptyMap()),
-                )
-                else -> null
+        Http.postSse(
+            baseUrl.trimEnd('/') + "/v1/messages",
+            mapOf("x-api-key" to apiKey, "anthropic-version" to "2023-06-01"),
+            body.toString(),
+        ) { data ->
+            val ev = Json.parseToJsonElement(data).jsonObject
+            when (ev["type"]?.jsonPrimitive?.contentOrNull) {
+                "content_block_start" -> {
+                    val index = ev["index"]?.jsonPrimitive?.intOrNull ?: return@postSse
+                    val block = ev["content_block"]?.jsonObject ?: return@postSse
+                    val a = Acc()
+                    a.type = block["type"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    a.id = block["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    a.name = block["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    val initial = block["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    if (initial.isNotEmpty()) {
+                        a.text.append(initial)
+                        onTextDelta(initial)
+                    }
+                    acc[index] = a
+                }
+                "content_block_delta" -> {
+                    val index = ev["index"]?.jsonPrimitive?.intOrNull ?: return@postSse
+                    val a = acc[index] ?: return@postSse
+                    val delta = ev["delta"]?.jsonObject ?: return@postSse
+                    when (delta["type"]?.jsonPrimitive?.contentOrNull) {
+                        "text_delta" -> {
+                            val t = delta["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                            if (t.isNotEmpty()) {
+                                a.text.append(t)
+                                onTextDelta(t)
+                            }
+                        }
+                        "input_json_delta" ->
+                            a.json.append(delta["partial_json"]?.jsonPrimitive?.contentOrNull.orEmpty())
+                    }
+                }
+                "message_delta" -> {
+                    stopReason = ev["delta"]?.jsonObject?.get("stop_reason")?.jsonPrimitive?.contentOrNull
+                }
+                "error" -> {
+                    val msg = ev["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
+                    throw IOException(msg ?: data.take(400))
+                }
             }
         }
-        return LlmResponse(blocks, (root["stop_reason"] as? JsonPrimitive)?.contentOrNull)
+
+        val blocks = mutableListOf<Block>()
+        for (a in acc.values) {
+            when (a.type) {
+                "text" -> if (a.text.isNotBlank()) blocks += Block.Text(a.text.toString())
+                "tool_use" -> {
+                    val input = try {
+                        Json.parseToJsonElement(a.json.toString().ifBlank { "{}" }) as? JsonObject
+                            ?: JsonObject(emptyMap())
+                    } catch (e: Exception) {
+                        JsonObject(emptyMap())
+                    }
+                    blocks += Block.ToolUse(a.id, a.name, input)
+                }
+            }
+        }
+        return LlmResponse(blocks, stopReason)
     }
 }

@@ -8,10 +8,13 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import java.io.IOException
+import java.util.TreeMap
 
 /** Любой OpenAI-совместимый API (OpenAI, OpenRouter, DeepSeek, локальный сервер и т.п.). */
 class OpenAiClient(
@@ -20,13 +23,21 @@ class OpenAiClient(
     private val model: String,
 ) : LlmClient {
 
+    private class CallAcc {
+        var id: String = ""
+        var name: String = ""
+        val args = StringBuilder()
+    }
+
     override suspend fun complete(
         system: String,
         messages: List<Message>,
         tools: List<ToolSpec>,
+        onTextDelta: (String) -> Unit,
     ): LlmResponse {
         val body = buildJsonObject {
             put("model", model)
+            put("stream", true)
             putJsonArray("messages") {
                 addJsonObject {
                     put("role", "system")
@@ -90,34 +101,52 @@ class OpenAiClient(
             }
         }
 
-        val url = baseUrl.trimEnd('/') + "/chat/completions"
-        val text = Http.postJson(url, mapOf("Authorization" to "Bearer $apiKey"), body.toString())
+        val text = StringBuilder()
+        val calls = TreeMap<Int, CallAcc>()
+        var finishReason: String? = null
 
-        val root = Json.parseToJsonElement(text).jsonObject
-        val choices = root["choices"] as? JsonArray
-        val choice = choices?.firstOrNull() as? JsonObject
-            ?: throw IllegalStateException("Пустой ответ модели: ${text.take(400)}")
-        val message = choice["message"] as? JsonObject ?: JsonObject(emptyMap())
+        Http.postSse(
+            baseUrl.trimEnd('/') + "/chat/completions",
+            mapOf("Authorization" to "Bearer $apiKey"),
+            body.toString(),
+        ) { data ->
+            val ev = Json.parseToJsonElement(data).jsonObject
+            (ev["error"] as? JsonObject)?.let { err ->
+                throw IOException((err["message"] as? JsonPrimitive)?.contentOrNull ?: data.take(400))
+            }
+            val choice = (ev["choices"] as? JsonArray)?.firstOrNull() as? JsonObject ?: return@postSse
+            (choice["finish_reason"] as? JsonPrimitive)?.contentOrNull?.let { finishReason = it }
+            val delta = choice["delta"] as? JsonObject ?: return@postSse
+
+            (delta["content"] as? JsonPrimitive)?.contentOrNull?.let { piece ->
+                if (piece.isNotEmpty()) {
+                    text.append(piece)
+                    onTextDelta(piece)
+                }
+            }
+            (delta["tool_calls"] as? JsonArray)?.forEach { el ->
+                val tc = el as? JsonObject ?: return@forEach
+                val index = (tc["index"] as? JsonPrimitive)?.intOrNull ?: 0
+                val acc = calls.getOrPut(index) { CallAcc() }
+                (tc["id"] as? JsonPrimitive)?.contentOrNull?.let { if (it.isNotEmpty()) acc.id = it }
+                val fn = tc["function"] as? JsonObject
+                (fn?.get("name") as? JsonPrimitive)?.contentOrNull?.let { if (it.isNotEmpty()) acc.name = it }
+                (fn?.get("arguments") as? JsonPrimitive)?.contentOrNull?.let { acc.args.append(it) }
+            }
+        }
 
         val blocks = mutableListOf<Block>()
-        val content = (message["content"] as? JsonPrimitive)?.contentOrNull
-        if (!content.isNullOrBlank()) blocks += Block.Text(content)
-
-        (message["tool_calls"] as? JsonArray)?.forEach { el ->
-            val call = el as? JsonObject ?: return@forEach
-            val fn = call["function"] as? JsonObject ?: return@forEach
-            val args = (fn["arguments"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+        if (text.isNotBlank()) blocks += Block.Text(text.toString())
+        for ((index, c) in calls) {
+            if (c.name.isEmpty()) continue
             val input = try {
-                Json.parseToJsonElement(args.ifBlank { "{}" }) as? JsonObject ?: JsonObject(emptyMap())
+                Json.parseToJsonElement(c.args.toString().ifBlank { "{}" }) as? JsonObject
+                    ?: JsonObject(emptyMap())
             } catch (e: Exception) {
                 JsonObject(emptyMap())
             }
-            blocks += Block.ToolUse(
-                id = (call["id"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
-                name = (fn["name"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
-                input = input,
-            )
+            blocks += Block.ToolUse(c.id.ifEmpty { "call_$index" }, c.name, input)
         }
-        return LlmResponse(blocks, (choice["finish_reason"] as? JsonPrimitive)?.contentOrNull)
+        return LlmResponse(blocks, finishReason)
     }
 }

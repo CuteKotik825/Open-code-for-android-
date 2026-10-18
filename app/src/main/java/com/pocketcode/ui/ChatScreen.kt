@@ -17,7 +17,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -44,15 +46,16 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.pocketcode.session.UiItem
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(vm: ChatViewModel, onOpenSettings: () -> Unit) {
+fun ChatScreen(vm: ChatController, onOpenSettings: () -> Unit, onOpenSessions: () -> Unit) {
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
     LaunchedEffect(vm.items.size, vm.items.lastOrNull()) {
-        if (vm.items.isNotEmpty()) listState.animateScrollToItem(vm.items.lastIndex)
+        if (vm.items.isNotEmpty()) listState.scrollToItem(vm.items.lastIndex)
     }
 
     Scaffold(
@@ -60,7 +63,12 @@ fun ChatScreen(vm: ChatViewModel, onOpenSettings: () -> Unit) {
             TopAppBar(
                 title = { Text("PocketCode") },
                 actions = {
-                    TextButton(onClick = { vm.newChat() }) { Text("Новый чат") }
+                    IconButton(onClick = { vm.newChat() }) {
+                        Icon(Icons.Filled.Add, contentDescription = "Новый чат")
+                    }
+                    IconButton(onClick = onOpenSessions) {
+                        Icon(Icons.AutoMirrored.Filled.List, contentDescription = "История")
+                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Настройки")
                     }
