@@ -22,7 +22,17 @@ jobs:
           gradle-version: "8.9"
 
       - name: Build debug APK
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          gradle :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+
+      - name: Show build errors
+        if: failure()
+        run: |
+          msg=$(grep -E "^e: |What went wrong|Caused by|error:|Could not|FAILURE" -A4 build.log | head -80 | cut -c1-400)
+          msg="${msg//'%'/'%25'}"
+          msg="${msg//$'\n'/'%0A'}"
+          echo "::error title=Build errors::${msg}"
 
       - uses: actions/upload-artifact@v4
         with:
