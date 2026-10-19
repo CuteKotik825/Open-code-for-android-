@@ -186,6 +186,52 @@ fun ProjectsScreen(vm: ChatController, actions: FileActions, onBack: () -> Unit)
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Открыть папку телефона как проект") }
 
+            // ----- Linux -----
+            Text("Среда Linux", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            if (!vm.linuxSupported) {
+                Text("На этом телефоне Linux-среда недоступна (нужен 64- или 32-битный ARM).", style = MaterialTheme.typography.bodySmall)
+            } else {
+                Text(
+                    if (vm.linuxInstalled) {
+                        "Alpine Linux установлен. Агент выполняет bash внутри него: настоящий sh, apk, свои пакеты. " +
+                            "Папка проекта доступна как /work."
+                    } else {
+                        "Скачает Alpine Linux (около 4 МБ) и запустит его через proot. Тогда в bash можно ставить " +
+                            "python, git, node, gcc командой apk add."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (!vm.linuxInstalled) {
+                    Button(
+                        onClick = { vm.installLinux() },
+                        enabled = !vm.linuxBusy && !vm.running,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(if (vm.linuxBusy) "Подожди…" else "Установить Linux") }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = vm.linuxEnabled,
+                            onClick = { vm.setLinuxEnabled(true) },
+                            label = { Text("bash в Linux") },
+                        )
+                        FilterChip(
+                            selected = !vm.linuxEnabled,
+                            onClick = { vm.setLinuxEnabled(false) },
+                            label = { Text("bash Android") },
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = { vm.installLinuxTools() },
+                        enabled = !vm.linuxBusy && !vm.running,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(if (vm.linuxBusy) "Подожди…" else "Поставить python, git, node") }
+                    TextButton(onClick = { vm.removeLinux() }, enabled = !vm.linuxBusy && !vm.running) {
+                        Text("Удалить Linux")
+                    }
+                }
+                vm.linuxStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            }
+
             // ----- создать и клонировать -----
             Text("Новый проект", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             OutlinedTextField(

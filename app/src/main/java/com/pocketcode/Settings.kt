@@ -85,6 +85,19 @@ class SettingsStore(context: Context) {
         prefs.edit().putString("externalProjects", Json.encodeToString(map)).apply()
     }
 
+    /** Использовать ли Linux (proot) для bash, если он установлен. */
+    fun loadLinuxEnabled(): Boolean = prefs.getBoolean("linuxEnabled", true)
+
+    fun saveLinuxEnabled(v: Boolean) {
+        prefs.edit().putBoolean("linuxEnabled", v).apply()
+    }
+
+    fun loadLinuxNoSeccomp(): Boolean = prefs.getBoolean("linuxNoSeccomp", false)
+
+    fun saveLinuxNoSeccomp(v: Boolean) {
+        prefs.edit().putBoolean("linuxNoSeccomp", v).apply()
+    }
+
     fun save(s: Settings) {
         prefs.edit()
             .putString("provider", s.provider.name)

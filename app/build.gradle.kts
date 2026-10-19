@@ -15,7 +15,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        versionName = "0.3.0"
+        versionName = "0.4.0"
 
         ndk {
             // 64-битные и 32-битные ARM-телефоны; x86 нужен только эмуляторам
@@ -52,6 +52,8 @@ android {
         compose = true
     }
     packaging {
+        // proot лежит в jniLibs и должен быть распакован на диск, чтобы его можно было запустить
+        jniLibs { useLegacyPackaging = true }
         resources {
             excludes += setOf(
                 "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA",
@@ -75,6 +77,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.6")
     implementation("androidx.documentfile:documentfile:1.0.1")
+    implementation("org.apache.commons:commons-compress:1.26.2")
 
     implementation(platform("androidx.compose:compose-bom:2024.09.02"))
     implementation("androidx.compose.ui:ui")

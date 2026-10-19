@@ -24,6 +24,9 @@ import com.pocketcode.llm.AnthropicClient
 import com.pocketcode.llm.LlmClient
 import com.pocketcode.llm.Message
 import com.pocketcode.llm.OpenAiClient
+import com.pocketcode.linux.LinuxEnv
+import com.pocketcode.linux.LinuxShell
+import com.pocketcode.linux.SwitchableShell
 import com.pocketcode.python.PythonRunner
 import com.pocketcode.service.AgentService
 import com.pocketcode.service.Notifier
@@ -70,7 +73,8 @@ class ChatController(private val app: Application) {
     private val homeDir = File(app.filesDir, "home")
     private val privateDir = File(app.filesDir, "workspace").apply { mkdirs() }
     private val sharedDir = File(Environment.getExternalStorageDirectory(), "PocketCode")
-    private val shell = AndroidShell(homeDir)
+    private val linuxEnv = LinuxEnv(app).also { it.noSeccomp = settingsStore.loadLinuxNoSeccomp() }
+    private val androidShell = AndroidShell(homeDir)
     private val python = PythonRunner(app)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -113,6 +117,78 @@ class ChatController(private val app: Application) {
     private fun projectDir(name: String): File = externalProjects[name]?.let { File(it) } ?: File(projectsDir, name)
 
     private val workspace = Workspace(projectDir(currentProject))
+
+    private val linuxShell = LinuxShell(linuxEnv, workspace)
+    private val shell = SwitchableShell(androidShell) { if (linuxEnabled && linuxEnv.isInstalled()) linuxShell else null }
+
+    // ---------- Linux (proot) ----------
+    var linuxEnabled by mutableStateOf(settingsStore.loadLinuxEnabled())
+        private set
+    var linuxInstalled by mutableStateOf(linuxEnv.isInstalled())
+        private set
+    val linuxSupported: Boolean get() = linuxEnv.isSupported()
+    var linuxBusy by mutableStateOf(false)
+        private set
+    var linuxStatus by mutableStateOf<String?>(null)
+        private set
+
+    fun setLinuxEnabled(v: Boolean) {
+        if (running) {
+            linuxStatus = "Дождись окончания работы агента или нажми «Стоп»."
+            return
+        }
+        linuxEnabled = v
+        settingsStore.saveLinuxEnabled(v)
+        agent = null // инструмент bash и системный промпт пересоздадутся
+    }
+
+    fun installLinux() {
+        if (running || linuxBusy) return
+        linuxBusy = true
+        linuxStatus = "Начинаю установку…"
+        scope.launch {
+            try {
+                val r = linuxEnv.install { msg -> scope.launch { linuxStatus = msg } }
+                settingsStore.saveLinuxNoSeccomp(linuxEnv.noSeccomp)
+                linuxInstalled = true
+                agent = null
+                linuxStatus = r + ". Теперь bash работает в Linux."
+            } catch (e: Exception) {
+                linuxInstalled = false
+                linuxStatus = "Ошибка установки: ${e.message}"
+            } finally {
+                linuxBusy = false
+            }
+        }
+    }
+
+    /** Ставит python, git, node и сборочные инструменты через apk. */
+    fun installLinuxTools() {
+        if (running || linuxBusy || !linuxInstalled) return
+        linuxBusy = true
+        linuxStatus = "Устанавливаю python, git, nodejs… Это может занять несколько минут."
+        scope.launch {
+            try {
+                val out = linuxShell.run(
+                    "apk add --no-cache bash git python3 py3-pip nodejs npm curl 2>&1 | tail -n 15",
+                    linuxEnv.rootfs, 900,
+                )
+                linuxStatus = "Результат:\n$out"
+            } catch (e: Exception) {
+                linuxStatus = "Ошибка: ${e.message}"
+            } finally {
+                linuxBusy = false
+            }
+        }
+    }
+
+    fun removeLinux() {
+        if (running || linuxBusy) return
+        linuxEnv.uninstall()
+        linuxInstalled = false
+        agent = null
+        linuxStatus = "Linux удалён."
+    }
 
     /** Выставляется MainActivity: нужно ли слать уведомления, когда экран не виден. */
     @Volatile
