@@ -220,6 +220,14 @@ fun ProjectsScreen(vm: ChatController, actions: FileActions, onBack: () -> Unit)
                             label = { Text("bash Android") },
                         )
                     }
+                    Text(
+                        if (vm.linuxEnabled) {
+                            "Сейчас команды агента идут в настоящий Linux: можно ставить программы (apk add), есть python, git, node."
+                        } else {
+                            "Сейчас команды идут в простую оболочку Android: только базовые команды, без python, git и node."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     OutlinedButton(
                         onClick = { vm.installLinuxTools() },
                         enabled = !vm.linuxBusy && !vm.running,
@@ -230,6 +238,30 @@ fun ProjectsScreen(vm: ChatController, actions: FileActions, onBack: () -> Unit)
                     }
                 }
                 vm.linuxStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            }
+
+            // ----- справка -----
+            var showHelp by remember { mutableStateOf(false) }
+            TextButton(onClick = { showHelp = !showHelp }, modifier = Modifier.padding(top = 8.dp)) {
+                Text(if (showHelp) "Скрыть справку" else "Справка: что здесь что")
+            }
+            if (showHelp) {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Проект", style = MaterialTheme.typography.titleSmall)
+                        Text("Папка, в которой работает агент. Он видит и меняет только её. У каждого проекта своя история чатов.", style = MaterialTheme.typography.bodySmall)
+                        Text("Где хранятся проекты", style = MaterialTheme.typography.titleSmall)
+                        Text("«Внутри приложения» — закрытая папка, другие программы её не видят. «Папка PocketCode» — обычная папка в памяти телефона, её видно в файловом менеджере. Для неё нужен доступ ко всем файлам.", style = MaterialTheme.typography.bodySmall)
+                        Text("Свои файлы", style = MaterialTheme.typography.titleSmall)
+                        Text("«Добавить файлы» и «Добавить папку» копируют выбранное в текущий проект. «Открыть папку телефона как проект» подключает папку без копирования: агент работает прямо в ней. «Сохранить проект в zip» выгружает результат.", style = MaterialTheme.typography.bodySmall)
+                        Text("Linux и bash", style = MaterialTheme.typography.titleSmall)
+                        Text("bash — это инструмент, через который агент запускает команды. «bash Android» — простая оболочка телефона без python, git и node. «bash в Linux» — настоящий мини-Linux (Alpine) внутри приложения: там можно ставить любые программы командой apk add. Проект в нём лежит в папке /work. Телефон и система при этом не затрагиваются.", style = MaterialTheme.typography.bodySmall)
+                        Text("Python", style = MaterialTheme.typography.titleSmall)
+                        Text("Отдельный встроенный Python 3.11 только со стандартной библиотекой. Работает и без Linux. Если нужны pip-пакеты, используй Python внутри Linux.", style = MaterialTheme.typography.bodySmall)
+                        Text("Файлы вручную", style = MaterialTheme.typography.titleSmall)
+                        Text("Кнопка «Файлы» в чате открывает файлы проекта: можно читать, править, создавать и удалять.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             }
 
             // ----- создать и клонировать -----
