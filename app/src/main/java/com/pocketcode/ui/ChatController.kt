@@ -120,6 +120,9 @@ class ChatController(private val app: Application) {
 
     val workspacePath: String get() = workspace.root.absolutePath
 
+    /** Корень текущего проекта для экрана файлов. */
+    val projectRoot: File get() = workspace.root
+
     private var history = mutableListOf<Message>()
     private var agent: Agent? = null
     private var job: Job? = null

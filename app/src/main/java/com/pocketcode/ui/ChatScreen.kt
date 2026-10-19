@@ -55,6 +55,7 @@ fun ChatScreen(
     onOpenSettings: () -> Unit,
     onOpenSessions: () -> Unit,
     onOpenProjects: () -> Unit,
+    onOpenFiles: () -> Unit,
 ) {
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -72,6 +73,7 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    TextButton(onClick = onOpenFiles) { Text("Файлы") }
                     IconButton(onClick = { vm.newChat() }) {
                         Icon(Icons.Filled.Add, contentDescription = "Новый чат")
                     }
