@@ -132,7 +132,7 @@ class ChatController(private val app: Application) {
     var linuxStatus by mutableStateOf<String?>(null)
         private set
 
-    fun setLinuxEnabled(v: Boolean) {
+    fun chooseLinuxShell(v: Boolean) {
         if (running) {
             linuxStatus = "Дождись окончания работы агента или нажми «Стоп»."
             return

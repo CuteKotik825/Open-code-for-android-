@@ -211,12 +211,12 @@ fun ProjectsScreen(vm: ChatController, actions: FileActions, onBack: () -> Unit)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
                             selected = vm.linuxEnabled,
-                            onClick = { vm.setLinuxEnabled(true) },
+                            onClick = { vm.chooseLinuxShell(true) },
                             label = { Text("bash в Linux") },
                         )
                         FilterChip(
                             selected = !vm.linuxEnabled,
-                            onClick = { vm.setLinuxEnabled(false) },
+                            onClick = { vm.chooseLinuxShell(false) },
                             label = { Text("bash Android") },
                         )
                     }
