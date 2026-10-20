@@ -275,7 +275,6 @@ fun FilesScreen(root: File, projectName: String, onBack: () -> Unit) {
                             value = editorValue,
                             onValueChange = { editorValue = it; matchRange = null },
                             textStyle = style,
-                            softWrap = false,
                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                             visualTransformation = remember(ext, dark, matchRange) { CodeTransformation(ext, dark, matchRange) },
                             modifier = Modifier.defaultMinSize(minWidth = 240.dp, minHeight = 300.dp).padding(end = 16.dp),
