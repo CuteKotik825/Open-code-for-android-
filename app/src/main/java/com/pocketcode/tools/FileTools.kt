@@ -62,10 +62,16 @@ class WriteFileTool(private val ws: Workspace) : Tool {
         val content = input.str("content") ?: ""
         require(!f.isDirectory) { "Это папка: ${ws.rel(f)}" }
         val existed = f.exists()
+        val before = if (existed && f.length() < 500_000) runCatching { f.readText() }.getOrNull() else null
         f.parentFile?.mkdirs()
         f.writeText(content)
-        return (if (existed) "Файл перезаписан: " else "Файл создан: ") +
+        val head = (if (existed) "Файл перезаписан: " else "Файл создан: ") +
             "${ws.rel(f)} (${content.length} символов)"
+        return when {
+            before != null -> head + "\n" + lineDiff(before, content)
+            !existed -> head + "\n+${content.lines().size} строк"
+            else -> head
+        }
     }
 }
 
@@ -108,8 +114,9 @@ class EditFileTool(private val ws: Workspace) : Tool {
         require(count == 1 || all) {
             "Фрагмент встречается $count раз. Добавь контекста или укажи replace_all=true."
         }
-        f.writeText(if (all) text.replace(old, new) else text.replaceFirst(old, new))
-        return "Готово: ${ws.rel(f)} (замен: ${if (all) count else 1})"
+        val updated = if (all) text.replace(old, new) else text.replaceFirst(old, new)
+        f.writeText(updated)
+        return "Готово: ${ws.rel(f)} (замен: ${if (all) count else 1})\n" + lineDiff(text, updated)
     }
 }
 

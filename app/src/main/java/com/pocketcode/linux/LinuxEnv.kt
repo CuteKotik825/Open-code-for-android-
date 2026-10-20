@@ -169,6 +169,19 @@ class LinuxEnv(private val context: Context) {
         }
     }
 
+    /** Прописывает автора коммитов и токен GitHub для настоящего git внутри Linux. */
+    fun configureGit(name: String, email: String, token: String) {
+        if (!isInstalled()) return
+        val root = File(rootfs, "root").apply { mkdirs() }
+        File(root, ".gitconfig").writeText(
+            "[user]\n\tname = ${name.ifBlank { "PocketCode" }}\n\temail = ${email.ifBlank { "pocketcode@users.noreply.github.com" }}\n" +
+                "[safe]\n\tdirectory = *\n[credential]\n\thelper = store\n[init]\n\tdefaultBranch = main\n",
+        )
+        val cred = File(root, ".git-credentials")
+        if (token.isBlank()) cred.delete()
+        else cred.writeText("https://x-access-token:$token@github.com\n")
+    }
+
     fun uninstall() {
         marker.delete()
         rootfs.deleteRecursively()

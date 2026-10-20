@@ -42,6 +42,7 @@ import com.pocketcode.tools.BashTool
 import com.pocketcode.tools.EditFileTool
 import com.pocketcode.tools.GitOps
 import com.pocketcode.tools.GitTool
+import com.pocketcode.tools.LinuxGitTool
 import com.pocketcode.tools.GrepTool
 import com.pocketcode.tools.ListDirTool
 import com.pocketcode.tools.PythonTool
@@ -131,6 +132,7 @@ class ChatController(private val app: Application) {
     var linuxInstalled by mutableStateOf(linuxEnv.isInstalled())
         private set
     val linuxSupported: Boolean get() = linuxEnv.isSupported()
+    private val linuxActive: Boolean get() = linuxEnabled && linuxEnv.isInstalled()
     var linuxBusy by mutableStateOf(false)
         private set
     var linuxStatus by mutableStateOf<String?>(null)
@@ -155,6 +157,7 @@ class ChatController(private val app: Application) {
                 val r = linuxEnv.install { msg -> scope.launch { linuxStatus = msg } }
                 settingsStore.saveLinuxNoSeccomp(linuxEnv.noSeccomp)
                 linuxInstalled = true
+                runCatching { linuxEnv.configureGit(settings.gitName, settings.gitEmail, settings.githubToken) }
                 agent = null
                 linuxStatus = r + ". Теперь bash работает в Linux."
             } catch (e: Exception) {
@@ -224,6 +227,7 @@ class ChatController(private val app: Application) {
     fun saveSettings(s: Settings) {
         settings = s
         settingsStore.save(s)
+        runCatching { linuxEnv.configureGit(s.gitName, s.gitEmail, s.githubToken) }
         agent = null // пересоберём с новыми настройками, история лежит в controller
     }
 
@@ -543,6 +547,8 @@ class ChatController(private val app: Application) {
 
     fun newChat() {
         cancelRun()
+        queue.clear()
+        notes.clear()
         items.clear()
         history = mutableListOf()
         agent = null
@@ -560,6 +566,38 @@ class ChatController(private val app: Application) {
         if (currentId == null) currentId = UUID.randomUUID().toString()
         items += UiItem.Notice("— Контекст сброшен: модель не помнит сообщения выше —")
         persist()
+    }
+
+    // ---------- уточнения и очередь ----------
+
+    private val notes = java.util.concurrent.ConcurrentLinkedQueue<String>()
+
+    /** Задачи, которые начнутся одна за другой после текущей. */
+    val queue = mutableStateListOf<String>()
+
+    private var lastRunFailed = false
+
+    /** Сообщение во время работы агента: он прочитает его перед следующим шагом. */
+    fun sendWhileRunning(text: String) {
+        val t = text.trim()
+        if (t.isEmpty()) return
+        if (!running) {
+            send(t)
+            return
+        }
+        notes.add(t)
+        items += UiItem.User(t)
+        persist()
+    }
+
+    fun enqueue(text: String) {
+        val t = text.trim()
+        if (t.isEmpty()) return
+        if (!running) send(t) else queue += t
+    }
+
+    fun clearQueue() {
+        queue.clear()
     }
 
     // ---------- откат ----------
@@ -656,6 +694,7 @@ class ChatController(private val app: Application) {
         val current = ensureAgent()
         items += UiItem.User(trimmed)
         streamingIndex = null
+        lastRunFailed = false
         running = true
         persist()
         startService()
@@ -677,7 +716,11 @@ class ChatController(private val app: Application) {
                 if (myRun == runId) {
                     // Нормальное завершение; при отмене всё уже убрал cancelRun()
                     finishRun()
-                    if (!appVisible) {
+                    val next = if (!lastRunFailed && queue.isNotEmpty()) queue.removeAt(0) else null
+                    if (lastRunFailed) queue.clear()
+                    if (next != null) {
+                        send(next)
+                    } else if (!appVisible) {
                         val last = (items.lastOrNull { it is UiItem.Assistant } as? UiItem.Assistant)?.text
                         Notifier.alert(app, "Агент закончил", last?.take(200) ?: "Задача выполнена")
                     }
@@ -689,6 +732,8 @@ class ChatController(private val app: Application) {
     /** Кнопка «Стоп» и действие в уведомлении. */
     fun stop() {
         if (!running) return
+        queue.clear()
+        notes.clear()
         markPendingInterrupted()
         cancelRun()
         persist()
@@ -757,6 +802,7 @@ class ChatController(private val app: Application) {
                 persist()
             }
             is AgentEvent.Error -> {
+                lastRunFailed = true
                 streamingIndex = null
                 items += UiItem.Error(event.message)
             }
@@ -802,16 +848,17 @@ class ChatController(private val app: Application) {
             GrepTool(workspace),
             BashTool(workspace, shell),
             PythonTool(workspace, python),
-            GitTool(workspace, homeDir) { settings },
+            if (linuxActive) LinuxGitTool(workspace, shell) else GitTool(workspace, homeDir) { settings },
         )
         val created = Agent(
             llm = llm,
             tools = tools,
-            system = systemPrompt(workspace.root.absolutePath, shell.info),
+            system = systemPrompt(workspace.root.absolutePath, shell.info, linuxActive),
             autoApprove = s.autoApprove,
             contextLimit = s.contextTokens,
             approve = ::requestApproval,
             history = history,
+            pollNotes = { generateSequence { notes.poll() }.toList() },
         )
         agent = created
         return created

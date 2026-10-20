@@ -107,6 +107,27 @@ fun ChatScreen(
                     }
                 }
             }
+            if (vm.queue.isNotEmpty() || (vm.running && input.isNotBlank())) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (vm.queue.isNotEmpty()) "В очереди задач: ${vm.queue.size}" else "Сообщение уйдёт агенту на следующем шаге",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (vm.queue.isNotEmpty()) {
+                        TextButton(onClick = { vm.clearQueue() }) { Text("Очистить") }
+                    }
+                    if (vm.running && input.isNotBlank()) {
+                        TextButton(onClick = {
+                            vm.enqueue(input)
+                            input = ""
+                        }) { Text("В очередь") }
+                    }
+                }
+            }
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -122,6 +143,15 @@ fun ChatScreen(
                 )
                 Spacer(Modifier.width(8.dp))
                 if (vm.running) {
+                    IconButton(
+                        onClick = {
+                            vm.sendWhileRunning(input)
+                            input = ""
+                        },
+                        enabled = input.isNotBlank(),
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Отправить агенту сейчас")
+                    }
                     Button(onClick = { vm.stop() }) { Text("Стоп") }
                 } else {
                     IconButton(

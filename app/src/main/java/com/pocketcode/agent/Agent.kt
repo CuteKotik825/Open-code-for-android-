@@ -43,6 +43,8 @@ class Agent(
     private val approve: suspend (String, String) -> Boolean,
     /** История диалога для модели; общая с хранилищем сессий. */
     val history: MutableList<Message> = mutableListOf(),
+    /** Забирает уточнения, которые пользователь написал, пока агент работает. */
+    private val pollNotes: () -> List<String> = { emptyList() },
 ) {
     private val compactor = Compactor(llm, contextLimit)
     private val byName = tools.associateBy { it.name }
@@ -60,6 +62,15 @@ class Agent(
         )
     }
 
+    /** Добавляет уточнения пользователя к последнему сообщению пользователя (или отдельным сообщением). */
+    private fun injectNotes(notes: List<String>) {
+        if (notes.isEmpty()) return
+        val extra = notes.map { Block.Text("[Уточнение от пользователя, пока ты работал]\n$it") }
+        val last = history.lastOrNull()
+        if (last != null && last.role == "user") history[history.lastIndex] = last.copy(blocks = last.blocks + extra)
+        else history += Message("user", extra)
+    }
+
     fun execute(text: String): Flow<AgentEvent> = channelFlow {
         repairHistory()
         history += Message("user", listOf(Block.Text(text)))
@@ -70,6 +81,7 @@ class Agent(
                 send(AgentEvent.Error("Достигнут лимит шагов ($MAX_STEPS). Напиши «продолжай», чтобы идти дальше."))
                 break
             }
+            injectNotes(pollNotes())
             if (compactor.needsCompaction(history)) {
                 try {
                     compactor.compact(history, force = false)?.let { send(AgentEvent.Notice(it)) }
@@ -108,7 +120,12 @@ class Agent(
             send(AgentEvent.TextEnd)
 
             val calls = response.blocks.filterIsInstance<Block.ToolUse>()
-            if (calls.isEmpty()) break
+            if (calls.isEmpty()) {
+                val late = pollNotes()
+                if (late.isEmpty()) break
+                injectNotes(late)
+                continue
+            }
 
             val results = mutableListOf<Block>()
             for (call in calls) {
@@ -146,15 +163,16 @@ class Agent(
     }.buffer(Channel.UNLIMITED)
 }
 
-fun systemPrompt(workspacePath: String, shellInfo: String): String = """
+fun systemPrompt(workspacePath: String, shellInfo: String, linux: Boolean): String = """
 You are PocketCode, a coding agent running inside an Android app on the user's phone. There is no PC:
 everything happens on the device and through the network.
 
 Workspace: the current project folder "$workspacePath"; all file tools work inside it and paths are relative to it.
 Tools: read_file, write_file, edit_file, list_dir, grep, bash, python, git.
 - Read a file before editing it. Prefer edit_file for small changes; use write_file for new files.
-- python runs an embedded Python 3.11 (standard library only, no pip, no stdin). Use it to run scripts, tests and calculations; bash has no python.
-- bash runs in: $shellInfo Use the git tool for git, not bash.
+- python runs an embedded Python 3.11 (standard library only, no pip, no stdin). ${if (linux) "Because bash is a real Linux here, prefer running `python3` through bash: it has pip and many libraries (install with `pip install --break-system-packages <pkg>`)." else "bash has no python, so use this tool for scripts, tests and calculations."}
+- bash runs in: $shellInfo
+${if (linux) "- Linux notes: before relying on python3/node/git run `which python3 node git`; if something is missing install it with `apk add <pkg>` (python3 py3-pip nodejs npm git build-base). The project is mounted at /work and commands start there. The git tool runs the real git CLI, credentials are already configured." else "- Use the git tool for git (pure-Java implementation), not bash."}
 - Some actions need the user's approval; if the user declines, do not retry the same thing, adapt or ask.
 - Explore first (list_dir, grep) when the task touches unfamiliar code. Keep changes minimal and focused,
   do not refactor or rename things that were not asked.
