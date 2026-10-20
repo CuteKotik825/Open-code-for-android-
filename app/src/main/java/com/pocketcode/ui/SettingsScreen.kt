@@ -46,6 +46,8 @@ fun SettingsScreen(initial: Settings, onSave: (Settings) -> Unit, onResetContext
     var autoApprove by remember { mutableStateOf(initial.autoApprove) }
     var contextTokens by remember { mutableStateOf(initial.contextTokens.toString()) }
     var freshOnStart by remember { mutableStateOf(initial.freshOnStart) }
+    var smartApprove by remember { mutableStateOf(initial.smartApprove) }
+    var allowRules by remember { mutableStateOf(initial.allowRules) }
     var resetDone by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -182,6 +184,29 @@ fun SettingsScreen(initial: Settings, onSave: (Settings) -> Unit, onResetContext
                 Switch(checked = autoApprove, onCheckedChange = { autoApprove = it })
             }
 
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Не спрашивать про безопасные команды")
+                    Text(
+                        "Команды, которые только читают (ls, cat, grep, git status, git log и подобные), выполняются без вопроса. Всё с записью, удалением и перенаправлением вывода по-прежнему спрашивает.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(checked = smartApprove, onCheckedChange = { smartApprove = it })
+            }
+            OutlinedTextField(
+                value = allowRules,
+                onValueChange = { allowRules = it },
+                label = { Text("Свои разрешённые команды (по одной в строке)") },
+                placeholder = { Text("npm test\npython3 -m pytest") },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "Команда считается разрешённой, если начинается с одной из этих строк, например «npm test». Цепочки через && и | проверяются по каждой части.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+
             Button(
                 onClick = {
                     onSave(
@@ -196,6 +221,8 @@ fun SettingsScreen(initial: Settings, onSave: (Settings) -> Unit, onResetContext
                             autoApprove = autoApprove,
                             contextTokens = (contextTokens.toIntOrNull() ?: 128_000).coerceIn(8_000, 2_000_000),
                             freshOnStart = freshOnStart,
+                            smartApprove = smartApprove,
+                            allowRules = allowRules,
                         ),
                     )
                     onBack()

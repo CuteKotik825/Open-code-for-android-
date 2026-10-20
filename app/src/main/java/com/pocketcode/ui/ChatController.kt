@@ -24,6 +24,7 @@ import com.pocketcode.llm.AnthropicClient
 import com.pocketcode.llm.LlmClient
 import com.pocketcode.llm.Message
 import com.pocketcode.llm.OpenAiClient
+import com.pocketcode.agent.ApprovalRules
 import com.pocketcode.linux.LinuxEnv
 import com.pocketcode.linux.LinuxShell
 import com.pocketcode.linux.SwitchableShell
@@ -33,6 +34,8 @@ import com.pocketcode.service.Notifier
 import com.pocketcode.session.SessionData
 import com.pocketcode.session.SessionMeta
 import com.pocketcode.session.SessionStore
+import com.pocketcode.session.SnapshotMeta
+import com.pocketcode.session.SnapshotStore
 import com.pocketcode.session.UiItem
 import com.pocketcode.tools.AndroidShell
 import com.pocketcode.tools.BashTool
@@ -70,6 +73,7 @@ class ApprovalRequest(
 class ChatController(private val app: Application) {
     private val settingsStore = SettingsStore(app)
     private val sessions = SessionStore(File(app.filesDir, "sessions"))
+    private val snapshots = SnapshotStore(File(app.filesDir, "snapshots"))
     private val homeDir = File(app.filesDir, "home")
     private val privateDir = File(app.filesDir, "workspace").apply { mkdirs() }
     private val sharedDir = File(Environment.getExternalStorageDirectory(), "PocketCode")
@@ -558,6 +562,36 @@ class ChatController(private val app: Application) {
         persist()
     }
 
+    // ---------- откат ----------
+
+    var snapshotList by mutableStateOf<List<SnapshotMeta>>(emptyList())
+        private set
+
+    fun refreshSnapshots() {
+        scope.launch { snapshotList = snapshots.list(currentProject) }
+    }
+
+    fun restoreSnapshot(id: Long) {
+        if (running || projectBusy) {
+            projectMessage = "Дождись окончания работы агента или нажми «Стоп»."
+            return
+        }
+        projectBusy = true
+        scope.launch {
+            try {
+                val r = snapshots.restore(currentProject, workspace.root, id)
+                projectMessage = "Проект возвращён к состоянию до задачи. $r"
+                items += UiItem.Notice("— Проект откатан к снимку; агент мог не знать об этом, файлы изменились —")
+                persist()
+            } catch (e: Exception) {
+                projectMessage = "Откат не удался: ${e.message}"
+            } finally {
+                projectBusy = false
+                snapshotList = snapshots.list(currentProject)
+            }
+        }
+    }
+
     fun openSession(id: String) {
         val meta = sessionList.firstOrNull { it.id == id } ?: return
         if (projectOf(meta) != currentProject) {
@@ -630,6 +664,14 @@ class ChatController(private val app: Application) {
         val myRun = ++runId
         job = scope.launch {
             try {
+                val snap = try {
+                    snapshots.create(currentProject, workspace.root, trimmed)
+                } catch (e: Exception) {
+                    null
+                }
+                if (snap == null) {
+                    items += UiItem.Notice("Снимок проекта не создан (проект слишком большой), откат этой задачи недоступен.")
+                }
                 current.execute(trimmed).collect { handle(it) }
             } finally {
                 if (myRun == runId) {
@@ -730,6 +772,9 @@ class ChatController(private val app: Application) {
     }
 
     private suspend fun requestApproval(tool: String, description: String): Boolean {
+        if (tool == "bash" &&
+            ApprovalRules.isSafeBash(description.removePrefix("$ "), settings.allowRules.lines(), settings.smartApprove)
+        ) return true
         val deferred = CompletableDeferred<Boolean>()
         approval = ApprovalRequest(tool, description, deferred)
         Notifier.updateWorking(app, "Ждёт подтверждения: $tool")

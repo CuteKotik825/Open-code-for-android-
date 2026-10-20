@@ -25,6 +25,10 @@ data class Settings(
     val contextTokens: Int = 128_000,
     /** true — при запуске приложения начинать с пустого чата, а не открывать последний. */
     val freshOnStart: Boolean = true,
+    /** true — не спрашивать про безопасные команды, которые только читают (ls, cat, git status…). */
+    val smartApprove: Boolean = true,
+    /** Свои разрешённые начала команд, по одному в строке. */
+    val allowRules: String = "",
 )
 
 const val DEFAULT_PROJECT = "main"
@@ -61,6 +65,8 @@ class SettingsStore(context: Context) {
             autoApprove = prefs.getBoolean("autoApprove", false),
             contextTokens = prefs.getInt("contextTokens", d.contextTokens),
             freshOnStart = prefs.getBoolean("freshOnStart", d.freshOnStart),
+            smartApprove = prefs.getBoolean("smartApprove", d.smartApprove),
+            allowRules = prefs.getString("allowRules", null) ?: "",
         )
     }
 
@@ -113,6 +119,8 @@ class SettingsStore(context: Context) {
             .putBoolean("autoApprove", s.autoApprove)
             .putInt("contextTokens", s.contextTokens)
             .putBoolean("freshOnStart", s.freshOnStart)
+            .putBoolean("smartApprove", s.smartApprove)
+            .putString("allowRules", s.allowRules)
             .apply()
     }
 }

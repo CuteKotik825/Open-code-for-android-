@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.pocketcode.session.SnapshotMeta
 
 /** Действия, которым нужны системные окна Android (выбор файлов, права). */
 class FileActions(
@@ -139,6 +140,57 @@ fun ProjectsScreen(vm: ChatController, actions: FileActions, onBack: () -> Unit)
                 enabled = !vm.projectBusy,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Сохранить проект в zip") }
+
+            // ----- откат -----
+            var showRollback by remember { mutableStateOf(false) }
+            var toRestore by remember { mutableStateOf<SnapshotMeta?>(null) }
+            OutlinedButton(
+                onClick = {
+                    vm.refreshSnapshots()
+                    showRollback = !showRollback
+                },
+                enabled = !vm.projectBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (showRollback) "Скрыть откат" else "Откатить изменения агента") }
+            if (showRollback) {
+                if (vm.snapshotList.isEmpty()) {
+                    Text("Снимков пока нет: они делаются автоматически перед каждой задачей агента.", style = MaterialTheme.typography.bodySmall)
+                }
+                vm.snapshotList.forEach { snap ->
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        modifier = Modifier.fillMaxWidth().clickable { toRestore = snap },
+                    ) {
+                        Column(Modifier.padding(10.dp)) {
+                            Text(
+                                java.text.SimpleDateFormat("d MMM, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(snap.id)),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                            Text("До задачи: " + snap.label.ifBlank { "(без названия)" }, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text("${snap.files} файлов", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+            toRestore?.let { snap ->
+                AlertDialog(
+                    onDismissRequest = { toRestore = null },
+                    title = { Text("Откатить проект?") },
+                    text = {
+                        Text(
+                            "Файлы вернутся к состоянию до задачи «${snap.label.take(60)}». Всё, что изменено или создано после, будет удалено " +
+                                "(папка .git не затрагивается). Перед откатом автоматически сделается ещё один снимок.",
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            vm.restoreSnapshot(snap.id)
+                            toRestore = null
+                        }) { Text("Откатить") }
+                    },
+                    dismissButton = { TextButton(onClick = { toRestore = null }) { Text("Отмена") } },
+                )
+            }
 
             // ----- где хранятся проекты -----
             Text(
