@@ -1,5 +1,6 @@
 package com.pocketcode.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -102,7 +103,7 @@ fun ChatScreen(
                         contentPadding = PaddingValues(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        itemsIndexed(vm.items) { _, item -> ItemView(item) }
+                        itemsIndexed(vm.items, key = { i, _ -> i }) { _, item -> ItemView(item) }
                     }
                 }
             }
@@ -200,36 +201,51 @@ private fun ItemView(item: UiItem) {
         is UiItem.Assistant -> SelectionContainer {
             MarkdownText(item.text, modifier = Modifier.fillMaxWidth())
         }
-        is UiItem.Tool -> Card(
-            colors = CardDefaults.cardColors(
-                containerColor = if (item.isError) MaterialTheme.colorScheme.errorContainer
-                else MaterialTheme.colorScheme.surfaceVariant,
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(Modifier.padding(10.dp)) {
-                Text(
-                    "${item.name}  ${item.description}",
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    maxLines = 6,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val output = item.output
-                when {
-                    output == null -> Text(
-                        "выполняется…",
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    output.isNotBlank() -> Text(
-                        output,
+        is UiItem.Tool -> {
+            var expanded by remember { mutableStateOf(false) }
+            val output = item.output
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (item.isError) MaterialTheme.colorScheme.errorContainer
+                    else MaterialTheme.colorScheme.surfaceVariant,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+            ) {
+                Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                    Text(
+                        (if (expanded) "▾ " else "▸ ") + item.name + "  " + item.description.trim(),
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        maxLines = 12,
+                        fontSize = 12.sp,
+                        maxLines = if (expanded) Int.MAX_VALUE else 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 6.dp),
                     )
+                    when {
+                        output == null -> Text(
+                            "выполняется…",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        output.isBlank() -> {}
+                        expanded -> SelectionContainer {
+                            Text(
+                                if (output.length > 6000) output.take(6000) + "\n… (показано 6000 из ${output.length} символов)" else output,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                        else -> Text(
+                            output.trim().lines().filter { it.isNotBlank() }.take(2).joinToString("\n"),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
             }
         }

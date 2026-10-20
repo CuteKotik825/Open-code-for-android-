@@ -256,12 +256,35 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier) {
                         modifier = Modifier.padding(start = 8.dp),
                     )
                 }
-                is MdBlock.Table -> Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                ) {
-                    Text(block.lines.joinToString("\n"), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                is MdBlock.Table -> {
+                    val rows = remember(block.lines) {
+                        block.lines
+                            .map { line -> line.trim().trim('|').split('|').map { it.trim() } }
+                            .filterNot { cells -> cells.all { c -> c.isNotEmpty() && c.all { ch -> ch == '-' || ch == ':' || ch == ' ' } } }
+                    }
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(codeBg, MaterialTheme.shapes.small)
+                            .padding(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        rows.forEachIndexed { idx, cells ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                cells.forEach { cell ->
+                                    Text(
+                                        remember(cell, codeBg, linkColor) {
+                                            buildAnnotatedString { appendInline(cell, codeBg, linkColor) }
+                                        },
+                                        fontWeight = if (idx == 0) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
+                            if (idx == 0) HorizontalDivider()
+                        }
+                    }
                 }
                 MdBlock.Rule -> HorizontalDivider(Modifier.padding(vertical = 4.dp))
             }

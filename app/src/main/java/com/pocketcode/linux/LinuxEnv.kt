@@ -32,7 +32,8 @@ class LinuxEnv(private val context: Context) {
     private val prootBin get() = File(nativeDir, "libproot.so")
 
     fun isSupported(): Boolean = prootBin.exists() && alpineArch() != null
-    fun isInstalled(): Boolean = marker.exists() && File(rootfs, "bin/sh").exists()
+    // /bin/sh в Alpine — абсолютный симлинк, с хоста он «не существует», поэтому проверяем busybox
+    fun isInstalled(): Boolean = marker.exists() && File(rootfs, "bin/busybox").exists()
 
     private fun alpineArch(): String? = Build.SUPPORTED_ABIS.firstNotNullOfOrNull {
         when (it) {

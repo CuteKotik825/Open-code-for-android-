@@ -51,7 +51,7 @@ class PythonService : Service() {
                     data.getString("code"),
                     data.getString("cwd"),
                     data.getString("file"),
-                    data.getStringArray("args")?.toList() ?: emptyList<String>(),
+                    java.util.ArrayList<String>(data.getStringArray("args")?.toList() ?: emptyList()),
                 ).asList()
                 output = result[0].toString()
                 code = result[1].toInt()
