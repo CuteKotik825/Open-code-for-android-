@@ -37,7 +37,13 @@ sealed class UiItem {
 }
 
 @Serializable
-data class SessionMeta(val id: String, val title: String, val updatedAt: Long, val project: String = "")
+data class SessionMeta(
+    val id: String,
+    val title: String,
+    val updatedAt: Long,
+    val project: String = "",
+    val pinned: Boolean = false,
+)
 
 @Serializable
 data class SessionData(
@@ -61,7 +67,8 @@ class SessionStore(private val dir: File) {
     private val indexFile get() = File(dir, "index.json")
 
     fun list(): List<SessionMeta> = try {
-        json.decodeFromString<List<SessionMeta>>(indexFile.readText()).sortedByDescending { it.updatedAt }
+        json.decodeFromString<List<SessionMeta>>(indexFile.readText())
+            .sortedWith(compareByDescending<SessionMeta> { it.pinned }.thenByDescending { it.updatedAt })
     } catch (e: Exception) {
         emptyList()
     }
@@ -76,9 +83,29 @@ class SessionStore(private val dir: File) {
         withContext(Dispatchers.IO) {
             dir.mkdirs()
             writeAtomic(File(dir, "${data.id}.json"), json.encodeToString(data))
-            val index = list().filter { it.id != data.id } + SessionMeta(data.id, data.title, data.updatedAt, data.project)
+            val old = list()
+            val pinned = old.firstOrNull { it.id == data.id }?.pinned ?: false
+            val index = old.filter { it.id != data.id } + SessionMeta(data.id, data.title, data.updatedAt, data.project, pinned)
             writeAtomic(indexFile, json.encodeToString(index))
         }
+    }
+
+    suspend fun setPinned(id: String, pinned: Boolean) = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            if (dir.exists()) {
+                writeAtomic(indexFile, json.encodeToString(list().map { if (it.id == id) it.copy(pinned = pinned) else it }))
+            }
+        }
+    }
+
+    /** Id чатов, в содержимом которых встречается запрос (без учёта регистра). */
+    suspend fun search(query: String): Set<String> = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.isEmpty()) return@withContext emptySet()
+        list().filter { meta ->
+            meta.title.contains(q, ignoreCase = true) ||
+                runCatching { File(dir, "${meta.id}.json").readText().contains(q, ignoreCase = true) }.getOrDefault(false)
+        }.map { it.id }.toSet()
     }
 
     suspend fun delete(id: String) = mutex.withLock {

@@ -8,6 +8,7 @@ import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -25,6 +26,7 @@ import com.pocketcode.llm.LlmClient
 import com.pocketcode.llm.Message
 import com.pocketcode.llm.OpenAiClient
 import com.pocketcode.agent.ApprovalRules
+import com.pocketcode.agent.Compactor
 import com.pocketcode.linux.LinuxEnv
 import com.pocketcode.linux.LinuxShell
 import com.pocketcode.linux.SwitchableShell
@@ -553,6 +555,7 @@ class ChatController(private val app: Application) {
         history = mutableListOf()
         agent = null
         currentId = null
+        contextUsed = 0
     }
 
     /**
@@ -641,6 +644,24 @@ class ChatController(private val app: Application) {
         loadInto(id)
     }
 
+    fun togglePin(id: String) {
+        val pinned = sessionList.firstOrNull { it.id == id }?.pinned ?: return
+        scope.launch {
+            sessions.setPinned(id, !pinned)
+            sessionList = sessions.list()
+        }
+    }
+
+    suspend fun searchSessions(query: String): Set<String> = sessions.search(query)
+
+    /** Примерный размер контекста модели в токенах (для индикатора в чате). */
+    var contextUsed by mutableIntStateOf(0)
+        private set
+
+    private fun updateContextUsage() {
+        contextUsed = Compactor.estimateTokens(history)
+    }
+
     fun deleteSession(id: String) {
         if (id == currentId) newChat()
         scope.launch {
@@ -661,10 +682,12 @@ class ChatController(private val app: Application) {
         history = data.history.toMutableList()
         agent = null
         currentId = data.id
+        updateContextUsage()
         streamingIndex = null
     }
 
     private fun persist() {
+        updateContextUsage()
         val id = currentId ?: return
         val title = (items.firstOrNull { it is UiItem.User } as? UiItem.User)?.text
             ?.replace('\n', ' ')?.take(60) ?: "Новый чат"

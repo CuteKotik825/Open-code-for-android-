@@ -29,6 +29,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -93,6 +94,20 @@ fun ChatScreen(
                 .padding(padding)
                 .fillMaxSize(),
         ) {
+            if (vm.contextUsed > 0) {
+                val limit = vm.settings.contextTokens.coerceAtLeast(1)
+                fun k(n: Int) = if (n >= 1000) "${n / 1000} тыс." else "$n"
+                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)) {
+                    LinearProgressIndicator(
+                        progress = { (vm.contextUsed.toFloat() / limit).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        "Контекст ≈ ${k(vm.contextUsed)} из ${k(limit)} токенов (оценка)",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (vm.items.isEmpty()) {
                     EmptyHint(vm.workspacePath)

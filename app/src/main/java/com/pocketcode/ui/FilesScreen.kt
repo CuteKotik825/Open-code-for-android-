@@ -1,7 +1,17 @@
 package com.pocketcode.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -71,9 +81,20 @@ fun FilesScreen(root: File, projectName: String, onBack: () -> Unit) {
     var message by remember { mutableStateOf<String?>(null) }
 
     var editing by remember { mutableStateOf<File?>(null) }
-    var text by remember { mutableStateOf("") }
+    var editorValue by remember { mutableStateOf(TextFieldValue("")) }
     var original by remember { mutableStateOf("") }
     var confirmLeave by remember { mutableStateOf(false) }
+    var previewFile by remember { mutableStateOf<File?>(null) }
+    var toRename by remember { mutableStateOf<File?>(null) }
+    var renameTo by remember { mutableStateOf("") }
+    var showSearch by remember { mutableStateOf(false) }
+    var findText by remember { mutableStateOf("") }
+    var replaceText by remember { mutableStateOf("") }
+    var matchRange by remember { mutableStateOf<IntRange?>(null) }
+    val vScroll = rememberScrollState()
+    val density = LocalDensity.current
+    val dark = isSystemInDarkTheme()
+    val text = editorValue.text
 
     var toDelete by remember { mutableStateOf<File?>(null) }
     var newKind by remember { mutableStateOf<String?>(null) } // "file" | "dir"
@@ -94,10 +115,12 @@ fun FilesScreen(root: File, projectName: String, onBack: () -> Unit) {
             r.onSuccess {
                 when (it) {
                     is Loaded.Text -> {
-                        text = it.content
+                        editorValue = TextFieldValue(it.content)
                         original = it.content
                         editing = f
                         message = null
+                        showSearch = false
+                        matchRange = null
                     }
                     is Loaded.Refused -> message = "${f.name}: ${it.reason}"
                 }
@@ -117,8 +140,28 @@ fun FilesScreen(root: File, projectName: String, onBack: () -> Unit) {
         }
     }
 
+    fun findNext() {
+        val q = findText
+        if (q.isEmpty()) return
+        val from = (matchRange?.last?.plus(1)) ?: 0
+        var idx = text.indexOf(q, from, ignoreCase = true)
+        if (idx < 0) idx = text.indexOf(q, 0, ignoreCase = true)
+        if (idx < 0) {
+            matchRange = null
+            message = "Не найдено: $q"
+            return
+        }
+        matchRange = idx until idx + q.length
+        message = null
+        val line = text.substring(0, idx).count { it == '\n' }
+        val px = with(density) { 18.sp.toPx() }
+        scope.launch { vScroll.animateScrollTo((line * px - 120).coerceAtLeast(0f).toInt()) }
+    }
+
     fun closeEditor() {
         editing = null
+        showSearch = false
+        matchRange = null
         confirmLeave = false
         tick++
     }
@@ -134,6 +177,10 @@ fun FilesScreen(root: File, projectName: String, onBack: () -> Unit) {
         }
     }
 
+    if (previewFile != null) {
+        PreviewScreen(previewFile!!, onBack = { previewFile = null })
+        return
+    }
     androidx.activity.compose.BackHandler { goUp() }
 
     Scaffold(
@@ -149,6 +196,14 @@ fun FilesScreen(root: File, projectName: String, onBack: () -> Unit) {
                 navigationIcon = { TextButton(onClick = { goUp() }) { Text("Назад") } },
                 actions = {
                     if (editing != null) {
+                        val ext = editing!!.extension.lowercase()
+                        TextButton(onClick = { showSearch = !showSearch }) { Text("Поиск") }
+                        if (ext == "html" || ext == "htm" || ext == "svg") {
+                            TextButton(onClick = {
+                                save()
+                                previewFile = editing
+                            }) { Text("Просмотр") }
+                        }
                         TextButton(onClick = { save() }, enabled = text != original) { Text("Сохранить") }
                     } else {
                         TextButton(onClick = { newKind = "file"; newName = "" }) { Text("+ Файл") }
@@ -167,13 +222,65 @@ fun FilesScreen(root: File, projectName: String, onBack: () -> Unit) {
                 )
             }
             if (editing != null) {
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp)) {
-                    OutlinedTextField(
-                        value = text,
-                        onValueChange = { text = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
+                if (showSearch) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = findText,
+                                onValueChange = { findText = it; matchRange = null },
+                                label = { Text("Найти") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { findNext() }, enabled = findText.isNotEmpty()) { Text("Дальше") }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = replaceText,
+                                onValueChange = { replaceText = it },
+                                label = { Text("Заменить на") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(
+                                onClick = {
+                                    val n = Regex(Regex.escape(findText), RegexOption.IGNORE_CASE).findAll(text).count()
+                                    if (n > 0) {
+                                        editorValue = TextFieldValue(
+                                            text.replace(Regex(Regex.escape(findText), RegexOption.IGNORE_CASE), Regex.escapeReplacement(replaceText)),
+                                        )
+                                        matchRange = null
+                                    }
+                                    message = "Заменено: $n"
+                                },
+                                enabled = findText.isNotEmpty(),
+                            ) { Text("Все") }
+                        }
+                    }
+                }
+                val lines = remember(text) { text.count { it == '\n' } + 1 }
+                val numbers = remember(lines) { (1..lines).joinToString("\n") }
+                val ext = editing!!.extension.lowercase()
+                val style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 18.sp,
+                    color = MaterialTheme.colorScheme.onSurface)
+                Row(Modifier.fillMaxSize().verticalScroll(vScroll)) {
+                    Text(
+                        numbers,
+                        style = style.copy(color = MaterialTheme.colorScheme.outline),
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.padding(horizontal = 6.dp),
                     )
+                    Box(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
+                        BasicTextField(
+                            value = editorValue,
+                            onValueChange = { editorValue = it; matchRange = null },
+                            textStyle = style,
+                            softWrap = false,
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            visualTransformation = remember(ext, dark, matchRange) { CodeTransformation(ext, dark, matchRange) },
+                            modifier = Modifier.defaultMinSize(minWidth = 240.dp, minHeight = 300.dp).padding(end = 16.dp),
+                        )
+                    }
                 }
             } else if (entries.isEmpty()) {
                 Text("Папка пуста.", modifier = Modifier.padding(16.dp))
@@ -198,6 +305,7 @@ fun FilesScreen(root: File, projectName: String, onBack: () -> Unit) {
                                     Text(humanSize(f.length()), style = MaterialTheme.typography.labelSmall)
                                 }
                             }
+                            TextButton(onClick = { toRename = f; renameTo = f.name }) { Text("Имя") }
                             TextButton(onClick = { toDelete = f }) { Text("Удалить") }
                         }
                         HorizontalDivider()
@@ -214,6 +322,37 @@ fun FilesScreen(root: File, projectName: String, onBack: () -> Unit) {
             text = { Text("В файле есть несохранённые изменения.") },
             confirmButton = { TextButton(onClick = { closeEditor() }) { Text("Выйти") } },
             dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("Остаться") } },
+        )
+    }
+
+    toRename?.let { f ->
+        AlertDialog(
+            onDismissRequest = { toRename = null },
+            title = { Text("Переименовать") },
+            text = {
+                OutlinedTextField(value = renameTo, onValueChange = { renameTo = it }, singleLine = true)
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = renameTo.isNotBlank() && renameTo != f.name,
+                    onClick = {
+                        val name = renameTo.trim()
+                        toRename = null
+                        if (name.contains('/') || name.contains('\\')) {
+                            message = "Имя не должно содержать / или \\"
+                        } else {
+                            val target = File(f.parentFile, name)
+                            message = when {
+                                target.exists() -> "«$name» уже существует"
+                                f.renameTo(target) -> null
+                                else -> "Не удалось переименовать"
+                            }
+                            tick++
+                        }
+                    },
+                ) { Text("Готово") }
+            },
+            dismissButton = { TextButton(onClick = { toRename = null }) { Text("Отмена") } },
         )
     }
 
