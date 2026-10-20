@@ -208,7 +208,9 @@ class ChatController(private val app: Application) {
     init {
         refreshProjects()
         sessionList = sessions.list()
-        sessionList.firstOrNull { projectOf(it) == currentProject }?.let { loadInto(it.id) }
+        if (!settings.freshOnStart) {
+            sessionList.firstOrNull { projectOf(it) == currentProject }?.let { loadInto(it.id) }
+        }
     }
 
     private fun projectOf(meta: SessionMeta) = meta.project.ifBlank { DEFAULT_PROJECT }
@@ -543,6 +545,19 @@ class ChatController(private val app: Application) {
         currentId = null
     }
 
+    /**
+     * Сбрасывает контекст: модель забывает всю переписку (в запросы к API она больше не попадает),
+     * а на экране история остаётся. Файлы проекта не затрагиваются.
+     */
+    fun resetContext() {
+        if (running) return
+        history = mutableListOf()
+        agent = null
+        if (currentId == null) currentId = UUID.randomUUID().toString()
+        items += UiItem.Notice("— Контекст сброшен: модель не помнит сообщения выше —")
+        persist()
+    }
+
     fun openSession(id: String) {
         val meta = sessionList.firstOrNull { it.id == id } ?: return
         if (projectOf(meta) != currentProject) {
@@ -598,6 +613,10 @@ class ChatController(private val app: Application) {
         if (settings.apiKey.isBlank()) {
             items += UiItem.Error("Сначала укажи API-ключ в настройках (шестерёнка сверху).")
             return
+        }
+        when (trimmed.lowercase()) {
+            "/clear", "/reset" -> { resetContext(); return }
+            "/new" -> { newChat(); return }
         }
         if (currentId == null) currentId = UUID.randomUUID().toString()
         val current = ensureAgent()

@@ -91,6 +91,7 @@ class MainActivity : ComponentActivity() {
                         SettingsScreen(
                             initial = vm.settings,
                             onSave = { vm.saveSettings(it) },
+                            onResetContext = { vm.resetContext() },
                             onBack = { screen = Screen.CHAT },
                         )
                     }

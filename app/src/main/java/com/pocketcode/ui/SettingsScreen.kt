@@ -12,6 +12,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -34,7 +35,7 @@ import com.pocketcode.Settings
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(initial: Settings, onSave: (Settings) -> Unit, onBack: () -> Unit) {
+fun SettingsScreen(initial: Settings, onSave: (Settings) -> Unit, onResetContext: () -> Unit, onBack: () -> Unit) {
     var provider by remember { mutableStateOf(initial.provider) }
     var baseUrl by remember { mutableStateOf(initial.baseUrl) }
     var model by remember { mutableStateOf(initial.model) }
@@ -44,6 +45,8 @@ fun SettingsScreen(initial: Settings, onSave: (Settings) -> Unit, onBack: () -> 
     var gitEmail by remember { mutableStateOf(initial.gitEmail) }
     var autoApprove by remember { mutableStateOf(initial.autoApprove) }
     var contextTokens by remember { mutableStateOf(initial.contextTokens.toString()) }
+    var freshOnStart by remember { mutableStateOf(initial.freshOnStart) }
+    var resetDone by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -116,6 +119,33 @@ fun SettingsScreen(initial: Settings, onSave: (Settings) -> Unit, onBack: () -> 
                 style = MaterialTheme.typography.bodySmall,
             )
 
+            Text("Контекст и память", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Новый чат при запуске")
+                    Text(
+                        "Приложение стартует с чистого чата. Если выключить, откроется последний чат проекта вместе с его историей, и модель продолжит с того же места.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(checked = freshOnStart, onCheckedChange = { freshOnStart = it })
+            }
+            Text(
+                "Каждый чат хранит свою историю и никак не связан с другими. Модель помнит только текущий чат.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedButton(
+                onClick = {
+                    onResetContext()
+                    resetDone = true
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (resetDone) "Контекст сброшен" else "Сбросить контекст текущего чата") }
+            Text(
+                "Сброс стирает память модели в текущем чате, переписка на экране остаётся. То же делает команда /clear в поле ввода, а /new открывает новый чат.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+
             Text("Git", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             OutlinedTextField(
                 value = githubToken,
@@ -165,6 +195,7 @@ fun SettingsScreen(initial: Settings, onSave: (Settings) -> Unit, onBack: () -> 
                             gitEmail = gitEmail,
                             autoApprove = autoApprove,
                             contextTokens = (contextTokens.toIntOrNull() ?: 128_000).coerceIn(8_000, 2_000_000),
+                            freshOnStart = freshOnStart,
                         ),
                     )
                     onBack()

@@ -23,6 +23,8 @@ data class Settings(
     val gitEmail: String = "pocketcode@users.noreply.github.com",
     val autoApprove: Boolean = false,
     val contextTokens: Int = 128_000,
+    /** true — при запуске приложения начинать с пустого чата, а не открывать последний. */
+    val freshOnStart: Boolean = true,
 )
 
 const val DEFAULT_PROJECT = "main"
@@ -58,6 +60,7 @@ class SettingsStore(context: Context) {
             gitEmail = prefs.getString("gitEmail", null) ?: d.gitEmail,
             autoApprove = prefs.getBoolean("autoApprove", false),
             contextTokens = prefs.getInt("contextTokens", d.contextTokens),
+            freshOnStart = prefs.getBoolean("freshOnStart", d.freshOnStart),
         )
     }
 
@@ -109,6 +112,7 @@ class SettingsStore(context: Context) {
             .putString("gitEmail", s.gitEmail.trim())
             .putBoolean("autoApprove", s.autoApprove)
             .putInt("contextTokens", s.contextTokens)
+            .putBoolean("freshOnStart", s.freshOnStart)
             .apply()
     }
 }
