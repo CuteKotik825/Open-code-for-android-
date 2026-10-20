@@ -51,7 +51,8 @@ class PythonService : Service() {
                     data.getString("code"),
                     data.getString("cwd"),
                     data.getString("file"),
-                    java.util.ArrayList<String>(data.getStringArray("args")?.toList() ?: emptyList()),
+                    // Java-коллекции из Python не перебираются, поэтому аргументы идут одной строкой
+                    (data.getStringArray("args") ?: emptyArray()).joinToString("\n"),
                 ).asList()
                 output = result[0].toString()
                 code = result[1].toInt()

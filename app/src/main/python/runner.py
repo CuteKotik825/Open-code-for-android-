@@ -8,7 +8,7 @@ import traceback
 
 
 def run(code, cwd, file, args):
-    """Выполняет код или файл. Возвращает (вывод, код_выхода)."""
+    """Выполняет код или файл. args — строка с аргументами через перевод строки. Возвращает (вывод, код_выхода)."""
     out = io.StringIO()
     old_cwd = os.getcwd()
     old_argv = sys.argv
@@ -16,7 +16,7 @@ def run(code, cwd, file, args):
     modules_before = set(sys.modules)
     exit_code = 0
 
-    sys.argv = [file or "<agent>"] + [str(a) for a in (args or [])]
+    sys.argv = [file or "<agent>"] + [a for a in str(args or "").split("\n") if a]
     sys.stdin = io.StringIO("")  # input() не должен зависать
     sys.path.insert(0, cwd)
     try:
