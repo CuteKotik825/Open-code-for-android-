@@ -14,8 +14,10 @@ android {
         applicationId = "com.pocketcode"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.4.0"
+        // CI передаёт номер сборки: по нему приложение понимает, что вышло обновление
+        val buildNumber = System.getenv("BUILD_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = buildNumber
+        versionName = "0.5.$buildNumber"
 
         ndk {
             // 64-битные и 32-битные ARM-телефоны; x86 нужен только эмуляторам

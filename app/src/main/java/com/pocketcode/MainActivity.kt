@@ -89,6 +89,7 @@ class MainActivity : ComponentActivity() {
                     Screen.SETTINGS -> {
                         BackHandler { screen = Screen.CHAT }
                         SettingsScreen(
+                            vm = vm,
                             initial = vm.settings,
                             onSave = { vm.saveSettings(it) },
                             onResetContext = { vm.resetContext() },

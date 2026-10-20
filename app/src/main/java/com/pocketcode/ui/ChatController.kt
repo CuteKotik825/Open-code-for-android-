@@ -25,6 +25,8 @@ import com.pocketcode.llm.AnthropicClient
 import com.pocketcode.llm.LlmClient
 import com.pocketcode.llm.Message
 import com.pocketcode.llm.OpenAiClient
+import com.pocketcode.UpdateInfo
+import com.pocketcode.Updater
 import com.pocketcode.agent.ApprovalRules
 import com.pocketcode.agent.Compactor
 import com.pocketcode.linux.LinuxEnv
@@ -569,6 +571,56 @@ class ChatController(private val app: Application) {
         if (currentId == null) currentId = UUID.randomUUID().toString()
         items += UiItem.Notice("— Контекст сброшен: модель не помнит сообщения выше —")
         persist()
+    }
+
+    // ---------- обновления ----------
+
+    private val updater = Updater(app)
+    val currentVersion: String get() = "${updater.currentName()} (сборка ${updater.currentBuild()})"
+    var updateStatus by mutableStateOf<String?>(null)
+        private set
+    var updateInfo by mutableStateOf<UpdateInfo?>(null)
+        private set
+    var updateBusy by mutableStateOf(false)
+        private set
+
+    fun checkUpdate() {
+        if (updateBusy) return
+        updateBusy = true
+        updateStatus = "Проверяю…"
+        scope.launch {
+            try {
+                val info = updater.latest(settings.githubToken)
+                if (info != null && info.build > updater.currentBuild()) {
+                    updateInfo = info
+                    updateStatus = "Доступна сборка ${info.build}: ${info.notes.take(150)}"
+                } else {
+                    updateInfo = null
+                    updateStatus = "У тебя последняя версия."
+                }
+            } catch (e: Exception) {
+                updateInfo = null
+                updateStatus = e.message ?: "Не удалось проверить обновления"
+            } finally {
+                updateBusy = false
+            }
+        }
+    }
+
+    fun installUpdate() {
+        val info = updateInfo ?: return
+        if (updateBusy) return
+        updateBusy = true
+        scope.launch {
+            try {
+                val apk = updater.download(info, settings.githubToken) { msg -> scope.launch { updateStatus = msg } }
+                updateStatus = updater.install(apk)
+            } catch (e: Exception) {
+                updateStatus = "Не удалось обновиться: ${e.message}"
+            } finally {
+                updateBusy = false
+            }
+        }
     }
 
     // ---------- уточнения и очередь ----------

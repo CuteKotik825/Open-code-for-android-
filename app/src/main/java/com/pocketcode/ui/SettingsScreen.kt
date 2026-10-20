@@ -35,7 +35,7 @@ import com.pocketcode.Settings
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(initial: Settings, onSave: (Settings) -> Unit, onResetContext: () -> Unit, onBack: () -> Unit) {
+fun SettingsScreen(vm: ChatController, initial: Settings, onSave: (Settings) -> Unit, onResetContext: () -> Unit, onBack: () -> Unit) {
     var provider by remember { mutableStateOf(initial.provider) }
     var baseUrl by remember { mutableStateOf(initial.baseUrl) }
     var model by remember { mutableStateOf(initial.model) }
@@ -206,6 +206,26 @@ fun SettingsScreen(initial: Settings, onSave: (Settings) -> Unit, onResetContext
                 "Команда считается разрешённой, если начинается с одной из этих строк, например «npm test». Цепочки через && и | проверяются по каждой части.",
                 style = MaterialTheme.typography.bodySmall,
             )
+
+            Text("Обновления", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            Text("Установлено: ${vm.currentVersion}", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "Каждая сборка из GitHub выкладывается в релизы. Репозиторий приватный, поэтому нужен сохранённый GitHub-токен с правом Contents: read.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedButton(
+                onClick = { vm.checkUpdate() },
+                enabled = !vm.updateBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (vm.updateBusy) "Подожди…" else "Проверить обновления") }
+            vm.updateStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            if (vm.updateInfo != null) {
+                Button(
+                    onClick = { vm.installUpdate() },
+                    enabled = !vm.updateBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Скачать и установить") }
+            }
 
             Button(
                 onClick = {
