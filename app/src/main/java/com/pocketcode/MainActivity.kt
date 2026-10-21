@@ -56,8 +56,12 @@ class MainActivity : ComponentActivity() {
 
     private val pickFolderAsProject =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-            if (uri != null) controller.addExternalFolder(uri)
+            if (uri != null) controller.addExternalFolder(uri, pickFolderFresh)
+            pickFolderFresh = false
         }
+
+    /** true — папку выбрали из окна «Новый чат»: после выбора начинаем в ней новый чат. */
+    private var pickFolderFresh = false
 
     private val exportZip =
         registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
@@ -85,13 +89,17 @@ class MainActivity : ComponentActivity() {
                         onOpenSessions = { screen = Screen.SESSIONS },
                         onOpenProjects = { screen = Screen.PROJECTS },
                         onOpenFiles = { screen = Screen.FILES },
+                        onPickFolder = {
+                            pickFolderFresh = true
+                            pickFolderAsProject.launch(null)
+                        },
                     )
                     Screen.SETTINGS -> {
                         BackHandler { screen = Screen.CHAT }
                         SettingsScreen(
                             vm = vm,
                             initial = vm.settings,
-                            onSave = { vm.saveSettings(it) },
+                            onSave = { s, p, a -> vm.saveSettings(s, p, a) },
                             onResetContext = { vm.resetContext() },
                             onBack = { screen = Screen.CHAT },
                         )
@@ -100,7 +108,15 @@ class MainActivity : ComponentActivity() {
                         BackHandler { screen = Screen.CHAT }
                         ProjectsScreen(vm, actions, onBack = { screen = Screen.CHAT })
                     }
-                    Screen.FILES -> FilesScreen(vm.projectRoot, vm.currentProject, onBack = { screen = Screen.CHAT })
+                    Screen.FILES -> FilesScreen(
+                        vm.projectRoot,
+                        vm.currentProject,
+                        onBack = { screen = Screen.CHAT },
+                        onStartHere = { dir ->
+                            vm.openFolderAsProject(dir)
+                            screen = Screen.CHAT
+                        },
+                    )
                     Screen.SESSIONS -> {
                         BackHandler { screen = Screen.CHAT }
                         SessionsScreen(vm, onBack = { screen = Screen.CHAT })

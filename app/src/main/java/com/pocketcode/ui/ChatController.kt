@@ -228,11 +228,30 @@ class ChatController(private val app: Application) {
 
     // ---------- настройки ----------
 
-    fun saveSettings(s: Settings) {
+    var profiles by mutableStateOf(settingsStore.loadProfiles())
+        private set
+    var activeProfileId by mutableStateOf(settingsStore.loadActiveId())
+        private set
+
+    fun saveSettings(s: Settings, newProfiles: List<Profile>, activeId: String) {
+        profiles = newProfiles
+        activeProfileId = activeId
+        settingsStore.saveProfiles(newProfiles, activeId)
         settings = s
         settingsStore.save(s)
         runCatching { linuxEnv.configureGit(s.gitName, s.gitEmail, s.githubToken) }
         agent = null // пересоберём с новыми настройками, история лежит в controller
+    }
+
+    /** Быстрое переключение ключа/модели из чата. */
+    fun switchProfile(id: String) {
+        if (running || id == activeProfileId) return
+        val p = profiles.firstOrNull { it.id == id } ?: return
+        settings = settings.copy(provider = p.provider, baseUrl = p.baseUrl, model = p.model, apiKey = p.apiKey)
+        settingsStore.save(settings)
+        settingsStore.saveProfiles(profiles, id)
+        activeProfileId = id
+        agent = null
     }
 
     // ---------- проекты ----------
@@ -514,7 +533,7 @@ class ChatController(private val app: Application) {
     }
 
     /** Подключает существующую папку телефона как проект (нужен доступ ко всем файлам). */
-    fun addExternalFolder(treeUri: Uri) {
+    fun addExternalFolder(treeUri: Uri, fresh: Boolean = false) {
         if (!hasStorageAccess()) {
             projectMessage = "Для работы с папками телефона выдай доступ к файлам."
             return
@@ -536,6 +555,15 @@ class ChatController(private val app: Application) {
             projectMessage = "Папка недоступна по пути ${dir.absolutePath}."
             return
         }
+        val name = registerFolder(dir)
+        projectMessage = null
+        selectProject(name)
+        if (fresh) newChat()
+    }
+
+    /** Добавляет папку как проект (если уже добавлена, возвращает её имя). */
+    private fun registerFolder(dir: File): String {
+        externalProjects.entries.firstOrNull { File(it.value).canonicalPath == dir.canonicalPath }?.let { return it.key }
         var name = sanitize(dir.name).ifEmpty { "folder" }
         val taken = projects.toSet()
         var i = 2
@@ -543,8 +571,21 @@ class ChatController(private val app: Application) {
         while (name in taken) name = "$original-${i++}"
         externalProjects = externalProjects + (name to dir.absolutePath)
         settingsStore.saveExternalProjects(externalProjects)
+        return name
+    }
+
+    /** «Начать работу в этой папке»: подпапка проекта становится рабочей папкой нового чата. */
+    fun openFolderAsProject(dir: File) {
+        val name = registerFolder(dir)
         projectMessage = null
-        selectProject(name)
+        switchTo(name)
+        newChat()
+    }
+
+    /** Новый чат в выбранном проекте. */
+    fun newChatIn(name: String) {
+        if (name != currentProject) switchTo(name)
+        newChat()
     }
 
     // ---------- сессии ----------

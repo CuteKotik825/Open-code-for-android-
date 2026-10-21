@@ -13,6 +13,17 @@ enum class Provider(val label: String, val defaultBaseUrl: String, val defaultMo
     OPENAI("OpenAI-совместимый", "https://api.openai.com/v1", "gpt-4o"),
 }
 
+/** Именованный набор «провайдер + URL + модель + ключ»; активный профиль определяет, куда идут запросы. */
+@kotlinx.serialization.Serializable
+data class Profile(
+    val id: String,
+    val label: String,
+    val provider: Provider,
+    val baseUrl: String,
+    val model: String,
+    val apiKey: String,
+)
+
 data class Settings(
     val provider: Provider = Provider.ANTHROPIC,
     val baseUrl: String = Provider.ANTHROPIC.defaultBaseUrl,
@@ -48,6 +59,24 @@ class SettingsStore(context: Context) {
     } catch (e: Exception) {
         // Если Keystore недоступен на устройстве — обычное хранилище приложения
         context.getSharedPreferences("pocketcode_plain", Context.MODE_PRIVATE)
+    }
+
+    fun loadProfiles(): List<Profile> {
+        val stored = prefs.getString("profiles", null)
+        if (stored != null) {
+            runCatching { Json.decodeFromString<List<Profile>>(stored) }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it }
+        }
+        val s = load()
+        return listOf(Profile("default", "Основной", s.provider, s.baseUrl, s.model, s.apiKey))
+    }
+
+    fun loadActiveId(): String = prefs.getString("activeProfile", null) ?: "default"
+
+    fun saveProfiles(list: List<Profile>, activeId: String) {
+        prefs.edit()
+            .putString("profiles", Json.encodeToString(list))
+            .putString("activeProfile", activeId)
+            .apply()
     }
 
     fun load(): Settings {

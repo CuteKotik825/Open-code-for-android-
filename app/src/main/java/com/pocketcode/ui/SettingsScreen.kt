@@ -1,5 +1,6 @@
 package com.pocketcode.ui
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,12 +31,19 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.pocketcode.Profile
 import com.pocketcode.Provider
 import com.pocketcode.Settings
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(vm: ChatController, initial: Settings, onSave: (Settings) -> Unit, onResetContext: () -> Unit, onBack: () -> Unit) {
+fun SettingsScreen(
+    vm: ChatController,
+    initial: Settings,
+    onSave: (Settings, List<Profile>, String) -> Unit,
+    onResetContext: () -> Unit,
+    onBack: () -> Unit,
+) {
     var provider by remember { mutableStateOf(initial.provider) }
     var baseUrl by remember { mutableStateOf(initial.baseUrl) }
     var model by remember { mutableStateOf(initial.model) }
@@ -49,6 +57,23 @@ fun SettingsScreen(vm: ChatController, initial: Settings, onSave: (Settings) -> 
     var smartApprove by remember { mutableStateOf(initial.smartApprove) }
     var allowRules by remember { mutableStateOf(initial.allowRules) }
     var resetDone by remember { mutableStateOf(false) }
+
+    // Профили ключей: форма ниже всегда редактирует активный профиль
+    var profiles by remember { mutableStateOf(vm.profiles) }
+    var activeId by remember { mutableStateOf(vm.activeProfileId) }
+    var label by remember { mutableStateOf(vm.profiles.firstOrNull { it.id == vm.activeProfileId }?.label ?: "Основной") }
+    fun formProfile() = Profile(activeId, label.ifBlank { "Без названия" }, provider, baseUrl.trim(), model.trim(), apiKey.trim())
+    fun withForm(): List<Profile> =
+        if (profiles.any { it.id == activeId }) profiles.map { if (it.id == activeId) formProfile() else it }
+        else profiles + formProfile()
+    fun load(p: Profile) {
+        activeId = p.id
+        label = p.label
+        provider = p.provider
+        baseUrl = p.baseUrl
+        model = p.model
+        apiKey = p.apiKey
+    }
 
     Scaffold(
         topBar = {
@@ -66,6 +91,58 @@ fun SettingsScreen(vm: ChatController, initial: Settings, onSave: (Settings) -> 
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Text("Ключи и модели", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Можно хранить несколько ключей (например, рабочий и личный) и переключаться между ними. Подпись нужна только тебе.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                withForm().forEach { p ->
+                    FilterChip(
+                        selected = p.id == activeId,
+                        onClick = {
+                            if (p.id != activeId) {
+                                profiles = withForm()
+                                load(profiles.first { it.id == p.id })
+                            }
+                        },
+                        label = { Text(p.label) },
+                    )
+                }
+                FilterChip(
+                    selected = false,
+                    onClick = {
+                        profiles = withForm()
+                        val fresh = Profile(
+                            java.util.UUID.randomUUID().toString(),
+                            "Профиль ${profiles.size + 1}",
+                            Provider.ANTHROPIC,
+                            Provider.ANTHROPIC.defaultBaseUrl,
+                            Provider.ANTHROPIC.defaultModel,
+                            "",
+                        )
+                        profiles = profiles + fresh
+                        load(fresh)
+                    },
+                    label = { Text("+ Новый") },
+                )
+            }
+            OutlinedTextField(
+                value = label,
+                onValueChange = { label = it },
+                label = { Text("Подпись профиля") },
+                placeholder = { Text("Например: Рабочий Claude") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (withForm().size > 1) {
+                TextButton(onClick = {
+                    val rest = withForm().filter { it.id != activeId }
+                    profiles = rest
+                    load(rest.first())
+                }) { Text("Удалить этот профиль") }
+            }
+
             Text("Модель", style = MaterialTheme.typography.titleMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Provider.values().forEach { p ->
@@ -210,7 +287,7 @@ fun SettingsScreen(vm: ChatController, initial: Settings, onSave: (Settings) -> 
             Text("Обновления", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             Text("Установлено: ${vm.currentVersion}", style = MaterialTheme.typography.bodyMedium)
             Text(
-                "Каждая сборка из GitHub выкладывается в релизы. Репозиторий приватный, поэтому нужен сохранённый GitHub-токен с правом Contents: read.",
+                "Каждая сборка из GitHub выкладывается в релизы. Если репозиторий публичный, токен не нужен. Для приватного нужен сохранённый GitHub-токен с правом Contents: read.",
                 style = MaterialTheme.typography.bodySmall,
             )
             OutlinedButton(
@@ -229,6 +306,7 @@ fun SettingsScreen(vm: ChatController, initial: Settings, onSave: (Settings) -> 
 
             Button(
                 onClick = {
+                    val finalProfiles = withForm()
                     onSave(
                         Settings(
                             provider = provider,
@@ -244,6 +322,8 @@ fun SettingsScreen(vm: ChatController, initial: Settings, onSave: (Settings) -> 
                             smartApprove = smartApprove,
                             allowRules = allowRules,
                         ),
+                        finalProfiles,
+                        activeId,
                     )
                     onBack()
                 },

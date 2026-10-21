@@ -23,6 +23,8 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -58,7 +60,11 @@ fun ChatScreen(
     onOpenSessions: () -> Unit,
     onOpenProjects: () -> Unit,
     onOpenFiles: () -> Unit,
+    onPickFolder: () -> Unit,
 ) {
+    var showNewChat by remember { mutableStateOf(false) }
+    var newProjectName by remember { mutableStateOf("") }
+    var profileMenu by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -76,7 +82,7 @@ fun ChatScreen(
                 },
                 actions = {
                     TextButton(onClick = onOpenFiles) { Text("Файлы") }
-                    IconButton(onClick = { vm.newChat() }) {
+                    IconButton(onClick = { showNewChat = true }) {
                         Icon(Icons.Filled.Add, contentDescription = "Новый чат")
                     }
                     IconButton(onClick = onOpenSessions) {
@@ -94,6 +100,25 @@ fun ChatScreen(
                 .padding(padding)
                 .fillMaxSize(),
         ) {
+            if (vm.profiles.size > 1) {
+                val active = vm.profiles.firstOrNull { it.id == vm.activeProfileId }
+                Box(Modifier.padding(horizontal = 4.dp)) {
+                    TextButton(onClick = { profileMenu = true }, enabled = !vm.running) {
+                        Text("🔑 ${active?.label ?: "?"} · ${active?.model.orEmpty()} ▾", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    DropdownMenu(expanded = profileMenu, onDismissRequest = { profileMenu = false }) {
+                        vm.profiles.forEach { p ->
+                            DropdownMenuItem(
+                                text = { Text(p.label + " · " + p.model) },
+                                onClick = {
+                                    vm.switchProfile(p.id)
+                                    profileMenu = false
+                                },
+                            )
+                        }
+                    }
+                }
+            }
             if (vm.contextUsed > 0) {
                 val limit = vm.settings.contextTokens.coerceAtLeast(1)
                 fun k(n: Int) = if (n >= 1000) "${n / 1000} тыс." else "$n"
@@ -181,6 +206,73 @@ fun ChatScreen(
                 }
             }
         }
+    }
+
+    if (showNewChat) {
+        AlertDialog(
+            onDismissRequest = { showNewChat = false },
+            title = { Text("Новый чат: где работать?") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    vm.projects.forEach { name ->
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (name == vm.currentProject) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.surfaceVariant,
+                            ),
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                vm.newChatIn(name)
+                                showNewChat = false
+                            },
+                        ) {
+                            Column(Modifier.padding(10.dp)) {
+                                Text("📁 " + name + if (name == vm.currentProject) "  (текущий)" else "")
+                                Text(
+                                    vm.projectPath(name),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = newProjectName,
+                        onValueChange = { newProjectName = it },
+                        label = { Text("Или новая папка-проект") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    )
+                    TextButton(
+                        enabled = newProjectName.isNotBlank(),
+                        onClick = {
+                            vm.createProject(newProjectName)
+                            if (vm.projectMessage == null) {
+                                vm.newChat()
+                                newProjectName = ""
+                                showNewChat = false
+                            }
+                        },
+                    ) { Text("Создать и начать") }
+                    vm.projectMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    TextButton(
+                        onClick = {
+                            showNewChat = false
+                            onPickFolder()
+                        },
+                    ) { Text("Выбрать папку на телефоне…") }
+                    if (!vm.storageGranted) {
+                        Text(
+                            "Для папок телефона нужен доступ ко всем файлам: Проекты и файлы → «Выдать доступ к файлам».",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { showNewChat = false }) { Text("Отмена") } },
+        )
     }
 
     vm.approval?.let { request ->

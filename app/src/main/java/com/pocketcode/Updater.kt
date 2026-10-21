@@ -51,15 +51,17 @@ class Updater(private val context: Context) {
 
     /** Самая новая сборка из релизов или null, если релизов нет. Ошибки — исключением с понятным текстом. */
     suspend fun latest(token: String): UpdateInfo? = withContext(Dispatchers.IO) {
-        require(token.isNotBlank()) { "Репозиторий приватный: добавь GitHub-токен в настройках (раздел Git)." }
         val req = Request.Builder()
             .url("https://api.github.com/repos/$REPO/releases?per_page=10")
-            .header("Authorization", "Bearer $token")
             .header("Accept", "application/vnd.github+json")
+            .apply { if (token.isNotBlank()) header("Authorization", "Bearer $token") }
             .build()
         client.newCall(req).execute().use { resp ->
             if (resp.code == 404 || resp.code == 401 || resp.code == 403) {
-                error("Нет доступа к репозиторию $REPO (код ${resp.code}). Токену нужно право Contents: read на этот репозиторий.")
+                error(
+                    if (token.isBlank()) "Репозиторий закрытый (код ${resp.code}). Сделай его публичным или добавь GitHub-токен с правом Contents: read в настройках."
+                    else "Нет доступа к репозиторию $REPO (код ${resp.code}). Токену нужно право Contents: read на этот репозиторий.",
+                )
             }
             if (!resp.isSuccessful) error("GitHub ответил кодом ${resp.code}")
             val arr: JsonArray = Json.parseToJsonElement(resp.body?.string().orEmpty()).jsonArray
@@ -88,8 +90,8 @@ class Updater(private val context: Context) {
         val target = File(dir, "PocketCode-${info.build}.apk")
         val req = Request.Builder()
             .url(info.assetUrl)
-            .header("Authorization", "Bearer $token")
             .header("Accept", "application/octet-stream")
+            .apply { if (token.isNotBlank()) header("Authorization", "Bearer $token") }
             .build()
         client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) error("Не удалось скачать (код ${resp.code})")

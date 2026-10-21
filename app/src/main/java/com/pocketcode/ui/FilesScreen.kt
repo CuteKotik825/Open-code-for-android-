@@ -73,7 +73,7 @@ private fun humanSize(n: Long): String = when {
 /** Просмотр и правка файлов текущего проекта. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FilesScreen(root: File, projectName: String, onBack: () -> Unit) {
+fun FilesScreen(root: File, projectName: String, onBack: () -> Unit, onStartHere: (File) -> Unit) {
     val scope = rememberCoroutineScope()
     var dir by remember { mutableStateOf(root) }
     var tick by remember { mutableIntStateOf(0) }
@@ -282,8 +282,16 @@ fun FilesScreen(root: File, projectName: String, onBack: () -> Unit) {
                     }
                 }
             } else if (entries.isEmpty()) {
+                if (dir.canonicalPath != root.canonicalPath) {
+                    TextButton(onClick = { onStartHere(dir) }) { Text("Начать работу в этой папке") }
+                }
                 Text("Папка пуста.", modifier = Modifier.padding(16.dp))
             } else {
+                if (dir.canonicalPath != root.canonicalPath) {
+                    TextButton(onClick = { onStartHere(dir) }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                        Text("Начать работу в этой папке")
+                    }
+                }
                 LazyColumn(Modifier.fillMaxSize()) {
                     items(entries, key = { it.absolutePath }) { f ->
                         Row(
