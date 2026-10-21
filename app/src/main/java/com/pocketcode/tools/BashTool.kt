@@ -46,13 +46,17 @@ suspend fun runProcess(pb: ProcessBuilder, timeoutSec: Long): String =
         var finished = false
         coroutineScope {
             val reader = launch(Dispatchers.IO) {
-                process.inputStream.bufferedReader().use { r ->
-                    val buf = CharArray(4096)
-                    while (true) {
-                        val n = r.read(buf)
-                        if (n < 0) break
-                        if (out.length < MAX_OUTPUT) out.append(buf, 0, n)
+                // При остановке процесса Android закрывает поток, и чтение падает: это не ошибка команды
+                try {
+                    process.inputStream.bufferedReader().use { r ->
+                        val buf = CharArray(4096)
+                        while (true) {
+                            val n = r.read(buf)
+                            if (n < 0) break
+                            if (out.length < MAX_OUTPUT) out.append(buf, 0, n)
+                        }
                     }
+                } catch (e: java.io.IOException) {
                 }
             }
             try {
@@ -60,7 +64,16 @@ suspend fun runProcess(pb: ProcessBuilder, timeoutSec: Long): String =
                 while (process.isAlive && System.nanoTime() < deadline) delay(100)
                 finished = !process.isAlive
             } finally {
-                if (process.isAlive) process.destroyForcibly()
+                if (process.isAlive) {
+                    // Сначала мягко (proot успевает завершить дочерние процессы), затем принудительно
+                    process.destroy()
+                    var waited = 0
+                    while (process.isAlive && waited < 20) {
+                        delay(100)
+                        waited++
+                    }
+                    if (process.isAlive) process.destroyForcibly()
+                }
             }
             reader.join()
         }

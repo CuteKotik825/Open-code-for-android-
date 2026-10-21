@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 import java.io.IOException
 import java.util.TreeMap
 
@@ -17,6 +18,8 @@ class AnthropicClient(
     private val baseUrl: String,
     private val apiKey: String,
     private val model: String,
+    /** Кэш промпта: система и история помечаются точками кэша, повторные запросы дешевле и быстрее. */
+    private val caching: Boolean = false,
 ) : LlmClient {
 
     private class Acc {
@@ -37,9 +40,20 @@ class AnthropicClient(
             put("model", model)
             put("max_tokens", 8192)
             put("stream", true)
-            put("system", system)
+            if (caching) {
+                putJsonArray("system") {
+                    addJsonObject {
+                        put("type", "text")
+                        put("text", system)
+                        putJsonObject("cache_control") { put("type", "ephemeral") }
+                    }
+                }
+            } else {
+                put("system", system)
+            }
+            val lastIdx = messages.indexOfLast { m -> m.blocks.any { it !is Block.Text || it.text.isNotBlank() } }
             putJsonArray("messages") {
-                for (m in messages) {
+                for ((mi, m) in messages.withIndex()) {
                     // Пустые text-блоки API отвергает
                     val blocks = m.blocks.filter { it !is Block.Text || it.text.isNotBlank() }
                     if (blocks.isEmpty()) continue
@@ -48,6 +62,9 @@ class AnthropicClient(
                         putJsonArray("content") {
                             for (b in blocks) {
                                 addJsonObject {
+                                    if (caching && mi == lastIdx && b === blocks.last()) {
+                                        putJsonObject("cache_control") { put("type", "ephemeral") }
+                                    }
                                     when (b) {
                                         is Block.Text -> {
                                             put("type", "text")

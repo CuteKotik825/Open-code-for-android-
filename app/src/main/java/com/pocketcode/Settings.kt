@@ -40,6 +40,8 @@ data class Settings(
     val smartApprove: Boolean = true,
     /** Свои разрешённые начала команд, по одному в строке. */
     val allowRules: String = "",
+    /** Кэширование контекста (prompt caching) у провайдеров, которые это поддерживают. */
+    val promptCaching: Boolean = true,
 )
 
 const val DEFAULT_PROJECT = "main"
@@ -96,6 +98,7 @@ class SettingsStore(context: Context) {
             freshOnStart = prefs.getBoolean("freshOnStart", d.freshOnStart),
             smartApprove = prefs.getBoolean("smartApprove", d.smartApprove),
             allowRules = prefs.getString("allowRules", null) ?: "",
+            promptCaching = prefs.getBoolean("promptCaching", d.promptCaching),
         )
     }
 
@@ -136,6 +139,22 @@ class SettingsStore(context: Context) {
         prefs.edit().putBoolean("linuxNoSeccomp", v).apply()
     }
 
+    fun loadRootEnabled(): Boolean = prefs.getBoolean("rootEnabled", false)
+
+    fun saveRootEnabled(v: Boolean) {
+        prefs.edit().putBoolean("rootEnabled", v).apply()
+    }
+
+    fun loadDevices(): List<com.pocketcode.tools.Device> = try {
+        Json.decodeFromString<List<com.pocketcode.tools.Device>>(prefs.getString("devices", null) ?: "[]")
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    fun saveDevices(list: List<com.pocketcode.tools.Device>) {
+        prefs.edit().putString("devices", Json.encodeToString(list)).apply()
+    }
+
     fun save(s: Settings) {
         prefs.edit()
             .putString("provider", s.provider.name)
@@ -150,6 +169,7 @@ class SettingsStore(context: Context) {
             .putBoolean("freshOnStart", s.freshOnStart)
             .putBoolean("smartApprove", s.smartApprove)
             .putString("allowRules", s.allowRules)
+            .putBoolean("promptCaching", s.promptCaching)
             .apply()
     }
 }

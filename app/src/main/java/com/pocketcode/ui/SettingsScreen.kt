@@ -57,6 +57,7 @@ fun SettingsScreen(
     var smartApprove by remember { mutableStateOf(initial.smartApprove) }
     var allowRules by remember { mutableStateOf(initial.allowRules) }
     var resetDone by remember { mutableStateOf(false) }
+    var promptCaching by remember { mutableStateOf(initial.promptCaching) }
 
     // Профили ключей: форма ниже всегда редактирует активный профиль
     var profiles by remember { mutableStateOf(vm.profiles) }
@@ -201,6 +202,17 @@ fun SettingsScreen(
             Text("Контекст и память", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
+                    Text("Кэширование контекста")
+                    Text(
+                        "Anthropic: длинная история кэшируется, повторные шаги заметно дешевле и быстрее. OpenRouter: кэшируется системная часть. " +
+                            "OpenAI, DeepSeek и многие другие кэшируют повторяющееся начало запроса сами, этот переключатель на них не влияет.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(checked = promptCaching, onCheckedChange = { promptCaching = it })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
                     Text("Новый чат при запуске")
                     Text(
                         "Приложение стартует с чистого чата. Если выключить, откроется последний чат проекта вместе с его историей, и модель продолжит с того же места.",
@@ -321,6 +333,7 @@ fun SettingsScreen(
                             freshOnStart = freshOnStart,
                             smartApprove = smartApprove,
                             allowRules = allowRules,
+                            promptCaching = promptCaching,
                         ),
                         finalProfiles,
                         activeId,

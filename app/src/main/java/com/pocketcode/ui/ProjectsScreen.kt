@@ -45,7 +45,7 @@ class FileActions(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProjectsScreen(vm: ChatController, actions: FileActions, onBack: () -> Unit) {
+fun ProjectsScreen(vm: ChatController, actions: FileActions, onOpenDevices: () -> Unit, onBack: () -> Unit) {
     var newName by remember { mutableStateOf("") }
     var cloneUrl by remember { mutableStateOf("") }
     var toDelete by remember { mutableStateOf<String?>(null) }
@@ -315,6 +315,8 @@ fun ProjectsScreen(vm: ChatController, actions: FileActions, onBack: () -> Unit)
                     }
                 }
             }
+
+            OutlinedButton(onClick = onOpenDevices, modifier = Modifier.fillMaxWidth()) { Text("Устройства (ADB) и root") }
 
             // ----- создать и клонировать -----
             Text("Новый проект", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))

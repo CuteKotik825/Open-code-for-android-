@@ -138,7 +138,7 @@ class Agent(
                 if (tool == null) {
                     output = "Неизвестный инструмент: ${call.name}"
                     isError = true
-                } else if (tool.needsApproval(call.input) && !autoApprove && !approve(call.name, description)) {
+                } else if (tool.needsApproval(call.input) && (tool.alwaysAsk || !autoApprove) && !approve(call.name, description)) {
                     output = "Пользователь отклонил это действие"
                     isError = true
                 } else {
@@ -163,7 +163,13 @@ class Agent(
     }.buffer(Channel.UNLIMITED)
 }
 
-fun systemPrompt(workspacePath: String, shellInfo: String, linux: Boolean): String = """
+fun systemPrompt(
+    workspacePath: String,
+    shellInfo: String,
+    linux: Boolean,
+    adbDevices: List<String>? = null,
+    root: Boolean = false,
+): String = """
 You are PocketCode, a coding agent running inside an Android app on the user's phone. There is no PC:
 everything happens on the device and through the network.
 
@@ -173,6 +179,8 @@ Tools: read_file, write_file, edit_file, list_dir, grep, bash, python, git.
 - python runs an embedded Python 3.11 (standard library only, no pip, no stdin). ${if (linux) "Because bash is a real Linux here, prefer running `python3` through bash: it has pip and many libraries (install with `pip install --break-system-packages <pkg>`)." else "bash has no python, so use this tool for scripts, tests and calculations."}
 - bash runs in: $shellInfo
 ${if (linux) "- Linux notes: before relying on python3/node/git run `which python3 node git`; if something is missing install it with `apk add <pkg>` (python3 py3-pip nodejs npm git build-base). The project is mounted at /work and commands start there. The git tool runs the real git CLI, credentials are already configured." else "- Use the git tool for git (pure-Java implementation), not bash."}
+${if (adbDevices != null) "- adb controls other Android devices over ADB (Wi-Fi), like on a PC. Saved devices: " + (if (adbDevices.isEmpty()) "none (the user can add some on the Devices screen; you may also pass ip:port)" else adbDevices.joinToString("; ")) + ". Pass device by label or ip:port, never -s. Project files are at /work inside adb push/install paths. Read-only commands run without asking, everything else asks the user." else ""}
+${if (root) "- root runs a command as root on THIS phone, outside the app sandbox. Every call needs the user's approval. Use it only when really necessary, never touch anything outside the task, and prefer the project folder tools otherwise." else ""}
 - Some actions need the user's approval; if the user declines, do not retry the same thing, adapt or ask.
 - Explore first (list_dir, grep) when the task touches unfamiliar code. Keep changes minimal and focused,
   do not refactor or rename things that were not asked.

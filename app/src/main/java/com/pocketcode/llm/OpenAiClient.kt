@@ -21,6 +21,8 @@ class OpenAiClient(
     private val baseUrl: String,
     private val apiKey: String,
     private val model: String,
+    /** Для OpenRouter помечает системное сообщение точкой кэша (OpenAI, DeepSeek и др. кэшируют префикс сами). */
+    private val caching: Boolean = false,
 ) : LlmClient {
 
     private class CallAcc {
@@ -41,7 +43,17 @@ class OpenAiClient(
             putJsonArray("messages") {
                 addJsonObject {
                     put("role", "system")
-                    put("content", system)
+                    if (caching && baseUrl.contains("openrouter", ignoreCase = true)) {
+                        putJsonArray("content") {
+                            addJsonObject {
+                                put("type", "text")
+                                put("text", system)
+                                putJsonObject("cache_control") { put("type", "ephemeral") }
+                            }
+                        }
+                    } else {
+                        put("content", system)
+                    }
                 }
                 for (m in messages) {
                     if (m.role == "assistant") {

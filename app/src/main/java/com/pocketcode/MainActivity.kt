@@ -26,13 +26,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.pocketcode.ui.ChatController
 import com.pocketcode.ui.ChatScreen
+import com.pocketcode.ui.DevicesScreen
 import com.pocketcode.ui.FileActions
 import com.pocketcode.ui.FilesScreen
 import com.pocketcode.ui.ProjectsScreen
 import com.pocketcode.ui.SessionsScreen
 import com.pocketcode.ui.SettingsScreen
 
-private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES }
+private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES }
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
@@ -106,7 +107,7 @@ class MainActivity : ComponentActivity() {
                     }
                     Screen.PROJECTS -> {
                         BackHandler { screen = Screen.CHAT }
-                        ProjectsScreen(vm, actions, onBack = { screen = Screen.CHAT })
+                        ProjectsScreen(vm, actions, onOpenDevices = { screen = Screen.DEVICES }, onBack = { screen = Screen.CHAT })
                     }
                     Screen.FILES -> FilesScreen(
                         vm.projectRoot,
@@ -117,6 +118,10 @@ class MainActivity : ComponentActivity() {
                             screen = Screen.CHAT
                         },
                     )
+                    Screen.DEVICES -> {
+                        BackHandler { screen = Screen.PROJECTS }
+                        DevicesScreen(vm, onBack = { screen = Screen.PROJECTS })
+                    }
                     Screen.SESSIONS -> {
                         BackHandler { screen = Screen.CHAT }
                         SessionsScreen(vm, onBack = { screen = Screen.CHAT })

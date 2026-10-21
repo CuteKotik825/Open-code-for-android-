@@ -21,9 +21,27 @@ object ApprovalRules {
     private fun matchesPrefix(segment: String, prefix: String) =
         segment == prefix || segment.startsWith("$prefix ")
 
+    private fun pathsInside(command: String, roots: List<String>): Boolean {
+        // Переменные оболочки и «~» могут указывать куда угодно
+        if (command.contains('$') || command.contains('~')) return false
+        for (raw in command.split(Regex("\\s+"))) {
+            val t = raw.trim('"', '\'')
+            if (t.contains("..")) return false
+            if (t.startsWith("/") && t != "/dev/null" && roots.none { t == it || t.startsWith("$it/") }) return false
+        }
+        return true
+    }
+
     /** command — текст команды без начального «$ ». */
-    fun isSafeBash(command: String, extraPrefixes: List<String>, useBuiltin: Boolean = true): Boolean {
+    fun isSafeBash(
+        command: String,
+        extraPrefixes: List<String>,
+        useBuiltin: Boolean = true,
+        /** Если задано (оболочка Android), команда не должна трогать пути вне этих папок. */
+        allowedRoots: List<String>? = null,
+    ): Boolean {
         if (command.isBlank()) return false
+        if (allowedRoots != null && !pathsInside(command, allowedRoots)) return false
         if (FORBIDDEN_CHARS.any { command.contains(it) }) return false
         val segs = segments(command)
         if (segs.isEmpty()) return false

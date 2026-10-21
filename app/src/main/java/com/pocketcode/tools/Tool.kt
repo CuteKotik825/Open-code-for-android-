@@ -20,6 +20,9 @@ interface Tool {
     /** Нужно ли спрашивать пользователя перед запуском. */
     fun needsApproval(input: JsonObject): Boolean
 
+    /** true — спрашивать всегда, даже если включено «выполнять без подтверждения». */
+    val alwaysAsk: Boolean get() = false
+
     /** Короткое описание вызова для интерфейса и диалога подтверждения. */
     fun describe(input: JsonObject): String
 

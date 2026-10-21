@@ -46,7 +46,13 @@ import com.pocketcode.tools.AndroidShell
 import com.pocketcode.tools.BashTool
 import com.pocketcode.tools.EditFileTool
 import com.pocketcode.tools.GitOps
+import com.pocketcode.tools.ADDRESS_RE
+import com.pocketcode.tools.AdbTool
+import com.pocketcode.tools.Device
 import com.pocketcode.tools.GitTool
+import com.pocketcode.tools.RootShell
+import com.pocketcode.tools.RootTool
+import com.pocketcode.tools.wrapAdb
 import com.pocketcode.tools.LinuxGitTool
 import com.pocketcode.tools.GrepTool
 import com.pocketcode.tools.ListDirTool
@@ -615,6 +621,102 @@ class ChatController(private val app: Application) {
         persist()
     }
 
+    // ---------- ADB и root ----------
+
+    private val rootShell = RootShell()
+    var devices by mutableStateOf(settingsStore.loadDevices())
+        private set
+    var deviceStatus by mutableStateOf<String?>(null)
+        private set
+    var deviceBusy by mutableStateOf(false)
+        private set
+    var rootEnabled by mutableStateOf(settingsStore.loadRootEnabled())
+        private set
+
+    private fun deviceTask(start: String, block: suspend () -> String) {
+        if (deviceBusy) return
+        if (!linuxEnv.isInstalled()) {
+            deviceStatus = "Сначала установи Linux (Проекты и файлы → Среда Linux)."
+            return
+        }
+        deviceBusy = true
+        deviceStatus = start
+        scope.launch {
+            try {
+                deviceStatus = block()
+            } catch (e: Exception) {
+                deviceStatus = "Ошибка: ${e.message}"
+            } finally {
+                deviceBusy = false
+            }
+        }
+    }
+
+    private suspend fun linuxRun(cmd: String, timeout: Long) = linuxShell.run(cmd, linuxEnv.rootfs, timeout)
+
+    fun installAdb() = deviceTask("Устанавливаю ADB…") {
+        "Результат:\n" + linuxRun("apk add --no-cache android-tools 2>&1 | tail -n 8", 600)
+    }
+
+    fun adbPair(address: String, code: String) {
+        val a = address.trim()
+        val c = code.trim()
+        if (!ADDRESS_RE.matches(a) || !Regex("^\\d{4,10}$").matches(c)) {
+            deviceStatus = "Адрес сопряжения вида 192.168.1.5:37000 и числовой код."
+            return
+        }
+        deviceTask("Сопрягаю…") { linuxRun(wrapAdb("adb pair $a $c 2>&1"), 60) }
+    }
+
+    fun addDevice(label: String, address: String) {
+        val a = address.trim()
+        if (!ADDRESS_RE.matches(a)) {
+            deviceStatus = "Адрес вида 192.168.1.5:5555."
+            return
+        }
+        val l = label.trim().ifEmpty { a }
+        if (devices.any { it.address == a || it.label.equals(l, ignoreCase = true) }) {
+            deviceStatus = "Такое устройство или подпись уже есть."
+            return
+        }
+        devices = devices + Device(UUID.randomUUID().toString(), l, a)
+        settingsStore.saveDevices(devices)
+        agent = null
+        deviceStatus = "Добавлено: $l"
+    }
+
+    fun removeDevice(id: String) {
+        devices = devices.filter { it.id != id }
+        settingsStore.saveDevices(devices)
+        agent = null
+    }
+
+    fun testDevice(d: Device) = deviceTask("Подключаюсь к ${d.label}…") {
+        linuxRun(wrapAdb("adb connect ${d.address} 2>&1; adb -s ${d.address} shell getprop ro.product.model 2>&1"), 60)
+    }
+
+    fun chooseRoot(v: Boolean) {
+        if (running) return
+        rootEnabled = v
+        settingsStore.saveRootEnabled(v)
+        agent = null
+    }
+
+    fun checkRoot() {
+        if (deviceBusy) return
+        deviceBusy = true
+        deviceStatus = "Проверяю root… (менеджер root может показать запрос)"
+        scope.launch {
+            try {
+                val out = rootShell.check()
+                deviceStatus = if (out.contains("uid=0")) "Root работает: ${out.lineSequence().firstOrNull()}"
+                else "Root недоступен или отклонён:\n$out"
+            } finally {
+                deviceBusy = false
+            }
+        }
+    }
+
     // ---------- обновления ----------
 
     private val updater = Updater(app)
@@ -936,7 +1038,10 @@ class ChatController(private val app: Application) {
 
     private suspend fun requestApproval(tool: String, description: String): Boolean {
         if (tool == "bash" &&
-            ApprovalRules.isSafeBash(description.removePrefix("$ "), settings.allowRules.lines(), settings.smartApprove)
+            ApprovalRules.isSafeBash(
+                description.removePrefix("$ "), settings.allowRules.lines(), settings.smartApprove,
+                allowedRoots = if (linuxActive) null else listOf(workspace.root.absolutePath, workspace.root.canonicalPath),
+            )
         ) return true
         val deferred = CompletableDeferred<Boolean>()
         approval = ApprovalRequest(tool, description, deferred)
@@ -954,10 +1059,10 @@ class ChatController(private val app: Application) {
         agent?.let { return it }
         val s = settings
         val llm: LlmClient = when (s.provider) {
-            Provider.ANTHROPIC -> AnthropicClient(s.baseUrl, s.apiKey, s.model)
-            Provider.OPENAI -> OpenAiClient(s.baseUrl, s.apiKey, s.model)
+            Provider.ANTHROPIC -> AnthropicClient(s.baseUrl, s.apiKey, s.model, s.promptCaching)
+            Provider.OPENAI -> OpenAiClient(s.baseUrl, s.apiKey, s.model, s.promptCaching)
         }
-        val tools = listOf(
+        val baseTools = listOf(
             ReadFileTool(workspace),
             WriteFileTool(workspace),
             EditFileTool(workspace),
@@ -967,10 +1072,18 @@ class ChatController(private val app: Application) {
             PythonTool(workspace, python),
             if (linuxActive) LinuxGitTool(workspace, shell) else GitTool(workspace, homeDir) { settings },
         )
+        val tools = baseTools + listOfNotNull(
+            if (linuxActive) AdbTool(workspace, linuxShell) { devices } else null,
+            if (rootEnabled) RootTool(workspace, rootShell) else null,
+        )
         val created = Agent(
             llm = llm,
             tools = tools,
-            system = systemPrompt(workspace.root.absolutePath, shell.info, linuxActive),
+            system = systemPrompt(
+                workspace.root.absolutePath, shell.info, linuxActive,
+                adbDevices = if (linuxActive) devices.map { "${it.label} (${it.address})" } else null,
+                root = rootEnabled,
+            ),
             autoApprove = s.autoApprove,
             contextLimit = s.contextTokens,
             approve = ::requestApproval,
