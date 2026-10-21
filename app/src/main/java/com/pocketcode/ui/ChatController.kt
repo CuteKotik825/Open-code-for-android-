@@ -25,6 +25,7 @@ import com.pocketcode.llm.AnthropicClient
 import com.pocketcode.llm.LlmClient
 import com.pocketcode.llm.Message
 import com.pocketcode.llm.OpenAiClient
+import com.pocketcode.Profile
 import com.pocketcode.UpdateInfo
 import com.pocketcode.Updater
 import com.pocketcode.agent.ApprovalRules
