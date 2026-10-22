@@ -20,6 +20,13 @@ import com.pocketcode.Settings
 import com.pocketcode.SettingsStore
 import com.pocketcode.agent.Agent
 import com.pocketcode.llm.Block
+import com.pocketcode.agent.AgentHooks
+import com.pocketcode.agent.PermissionRules
+import com.pocketcode.tools.PresentPlanTool
+import com.pocketcode.tools.TodoTool
+import com.pocketcode.tools.looksBinary
+import com.pocketcode.tools.str
+import kotlinx.serialization.json.JsonObject
 import com.pocketcode.tools.McpClient
 import com.pocketcode.tools.SubagentTool
 import com.pocketcode.tools.Tool
@@ -672,6 +679,8 @@ class ChatController(private val app: Application) {
 
     fun newChat() {
         cancelRun()
+        todos = emptyList()
+        changes.clear()
         notes.clear()
         items.clear()
         history = mutableListOf()
@@ -1046,6 +1055,82 @@ class ChatController(private val app: Application) {
 
     // ---------- запуск агента ----------
 
+    // ---------- режим плана, задачи, журнал правок ----------
+
+    var planMode by mutableStateOf(false)
+    var todos by mutableStateOf<List<String>>(emptyList())
+        private set
+
+    class FileChange(val path: String, val before: String?, val after: String, val time: Long)
+
+    val changes = mutableStateListOf<FileChange>()
+    private val pendingBefore = HashMap<String, String?>()
+
+    fun revertChange(i: Int) {
+        val ch = changes.getOrNull(i) ?: return
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val f = workspace.resolve(ch.path)
+                if (ch.before == null) f.delete() else f.writeText(ch.before)
+            }.onSuccess {
+                withContext(Dispatchers.Main) {
+                    changes.removeAt(i)
+                    items += UiItem.Notice("Правка отменена: ${ch.path}")
+                }
+            }.onFailure {
+                withContext(Dispatchers.Main) { items += UiItem.Error("Не удалось откатить ${ch.path}: ${it.message}") }
+            }
+        }
+    }
+
+    private fun globToRegex(glob: String): Regex =
+        Regex(glob.trim().split("*").joinToString(".*") { Regex.escape(it) }, RegexOption.IGNORE_CASE)
+
+    private val agentHooks = object : AgentHooks {
+        override fun planMode() = this@ChatController.planMode
+
+        override fun decide(tool: String, input: JsonObject, description: String) =
+            PermissionRules.decide(settings.permissionRules, tool, description)
+
+        override suspend fun before(tool: Tool, input: JsonObject) {
+            if (tool.name != "write_file" && tool.name != "edit_file") return
+            val p = input.str("path") ?: return
+            runCatching {
+                val f = workspace.resolve(p)
+                pendingBefore[p] = if (f.isFile && f.length() < 300_000 && !looksBinary(f)) f.readText() else null
+            }
+        }
+
+        override suspend fun after(tool: Tool, input: JsonObject, output: String, isError: Boolean): String? {
+            if (tool.name != "write_file" && tool.name != "edit_file") return null
+            val p = input.str("path") ?: return null
+            return runCatching {
+                val f = workspace.resolve(p)
+                val after = if (f.isFile && f.length() < 300_000 && !looksBinary(f)) f.readText() else return@runCatching null
+                val before = pendingBefore.remove(p)
+                withContext(Dispatchers.Main) {
+                    changes += FileChange(p, before, after, System.currentTimeMillis())
+                    while (changes.size > 200) changes.removeAt(0)
+                }
+                val rel = workspace.rel(f)
+                val sb = StringBuilder()
+                for (line in settings.fileHooks.lines()) {
+                    val i = line.indexOf("=>")
+                    if (i <= 0) continue
+                    val glob = line.substring(0, i).trim()
+                    val cmd = line.substring(i + 2).trim()
+                    if (cmd.isEmpty()) continue
+                    val re = globToRegex(glob)
+                    if (!(re.matches(rel) || re.matches(f.name))) continue
+                    val quoted = "'" + rel.replace("'", "'\\''") + "'"
+                    val out = shell.run(cmd.replace("{file}", quoted), workspace.root, 120)
+                    sb.append("\n\n[Хук ").append(glob).append(" => ").append(cmd).append("]\n").append(out.take(3000))
+                }
+                sb.toString().ifEmpty { null }
+            }.getOrNull()
+        }
+    }
+
     private var limitHit = false
     private var autoChain = 0
 
@@ -1093,6 +1178,7 @@ class ChatController(private val app: Application) {
         if (currentId == null) currentId = UUID.randomUUID().toString()
         val current = ensureAgent()
         if (auto) autoChain++ else autoChain = 0
+        val planNote = if (planMode) "[РЕЖИМ ПЛАНА: пока ничего не меняй и не запускай. Изучи код (чтение, поиск), затем вызови present_plan с планом и жди одобрения.]\n\n" else ""
         limitHit = false
         val images = pendingImages
         pendingImages = emptyList()
@@ -1115,7 +1201,7 @@ class ChatController(private val app: Application) {
                 if (snap == null) {
                     items += UiItem.Notice("Снимок проекта не создан (проект слишком большой), откат этой задачи недоступен.")
                 }
-                current.execute(expanded ?: trimmed, images).collect { handle(it) }
+                current.execute(planNote + (expanded ?: trimmed), images).collect { handle(it) }
             } finally {
                 if (myRun == runId) {
                     // Нормальное завершение; при отмене всё уже убрал cancelRun()
@@ -1270,12 +1356,16 @@ class ChatController(private val app: Application) {
         )
         val skills = runCatching { extensions.skills() }.getOrDefault(emptyList())
         val mcpTools: List<Tool> = mcpServers.filter { it.enabled }.flatMap { s -> s.tools.map { McpTool(s, it) } }
+        val planTools: List<Tool> = listOf(
+            PresentPlanTool { planMode = false },
+            TodoTool { todos = it },
+        )
         val explorer = SubagentTool(
             llm,
             listOf(ReadFileTool(workspace), ListDirTool(workspace), GrepTool(workspace), WebSearchTool(), WebFetchTool()),
             s.contextTokens,
         )
-        val tools = baseTools + mcpTools + explorer + listOfNotNull(
+        val tools = baseTools + mcpTools + planTools + explorer + listOfNotNull(
             if (skills.isNotEmpty()) SkillTool(extensions) else null,
             WebSearchTool(),
             WebFetchTool(),
@@ -1295,6 +1385,7 @@ class ChatController(private val app: Application) {
             autoApprove = s.autoApprove,
             contextLimit = s.contextTokens,
             maxSteps = s.maxSteps,
+            hooks = agentHooks,
             approve = ::requestApproval,
             history = history,
             pollNotes = { generateSequence { notes.poll() }.toList() },

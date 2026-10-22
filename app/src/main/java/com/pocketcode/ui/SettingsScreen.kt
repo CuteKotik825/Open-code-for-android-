@@ -59,6 +59,8 @@ fun SettingsScreen(
     var resetDone by remember { mutableStateOf(false) }
     var promptCaching by remember { mutableStateOf(initial.promptCaching) }
     var maxSteps by remember { mutableStateOf(initial.maxSteps.toString()) }
+    var permissionRules by remember { mutableStateOf(initial.permissionRules) }
+    var fileHooks by remember { mutableStateOf(initial.fileHooks) }
     var autoContinue by remember { mutableStateOf(initial.autoContinue) }
 
     // Профили ключей: форма ниже всегда редактирует активный профиль
@@ -220,6 +222,29 @@ fun SettingsScreen(
                 Switch(checked = promptCaching, onCheckedChange = { promptCaching = it })
             }
             OutlinedTextField(
+                value = permissionRules,
+                onValueChange = { permissionRules = it },
+                label = { Text("Правила инструментов") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "По строке: allow, ask или deny, имя инструмента (или *) и необязательная часть описания вызова. Работает первое подходящее правило. " +
+                    "Примеры:\ndeny bash rm -rf\nask git push\nallow edit_file\nask write_file src/\n" +
+                    "deny — запретить, ask — всегда спрашивать, allow — не спрашивать (root и режим плана это не отменяет).",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedTextField(
+                value = fileHooks,
+                onValueChange = { fileHooks = it },
+                label = { Text("Хуки после правки файла") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "По строке: шаблон имени файла, затем => и команда. После write_file/edit_file подходящего файла команда выполняется " +
+                    "в среде bash, а её вывод агент видит сразу. {file} — путь файла. Примеры:\n*.py => python3 -m py_compile {file}\n*.json => python3 -m json.tool {file} > /dev/null\n* => npm test --silent",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedTextField(
                 value = maxSteps,
                 onValueChange = { maxSteps = it.filter(Char::isDigit).take(4) },
                 label = { Text("Шагов за один запуск (0 — без лимита)") },
@@ -361,6 +386,8 @@ fun SettingsScreen(
                             promptCaching = promptCaching,
                             maxSteps = (maxSteps.toIntOrNull() ?: 60).coerceIn(0, 1000),
                             autoContinue = autoContinue,
+                            permissionRules = permissionRules,
+                            fileHooks = fileHooks,
                         ),
                         finalProfiles,
                         activeId,

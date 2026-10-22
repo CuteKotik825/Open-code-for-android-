@@ -43,6 +43,8 @@ data class Settings(
     /** Кэширование контекста (prompt caching) у провайдеров, которые это поддерживают. */
     val promptCaching: Boolean = true,
     val maxSteps: Int = 60,
+    val permissionRules: String = "",
+    val fileHooks: String = "",
     val autoContinue: Boolean = true,
 )
 
@@ -102,6 +104,8 @@ class SettingsStore(context: Context) {
             allowRules = prefs.getString("allowRules", null) ?: "",
             promptCaching = prefs.getBoolean("promptCaching", d.promptCaching),
             maxSteps = prefs.getInt("maxSteps", d.maxSteps),
+            permissionRules = prefs.getString("permissionRules", d.permissionRules) ?: "",
+            fileHooks = prefs.getString("fileHooks", d.fileHooks) ?: "",
             autoContinue = prefs.getBoolean("autoContinue", d.autoContinue),
         )
     }
@@ -195,6 +199,8 @@ class SettingsStore(context: Context) {
             .putString("allowRules", s.allowRules)
             .putBoolean("promptCaching", s.promptCaching)
             .putInt("maxSteps", s.maxSteps)
+            .putString("permissionRules", s.permissionRules)
+            .putString("fileHooks", s.fileHooks)
             .putBoolean("autoContinue", s.autoContinue)
             .apply()
     }

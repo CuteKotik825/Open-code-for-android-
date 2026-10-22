@@ -49,6 +49,7 @@ class Agent(
     private val pollNotes: () -> List<String> = { emptyList() },
     /** Шагов за запуск; 0 — без лимита. */
     private val maxSteps: Int = 0,
+    private val hooks: AgentHooks = AgentHooks.NONE,
 ) {
     private val compactor = Compactor(llm, contextLimit)
     private val byName = tools.associateBy { it.name }
@@ -73,6 +74,12 @@ class Agent(
         val last = history.lastOrNull()
         if (last != null && last.role == "user") history[history.lastIndex] = last.copy(blocks = last.blocks + extra)
         else history += Message("user", extra)
+    }
+
+    private fun mustAsk(tool: Tool, input: kotlinx.serialization.json.JsonObject, d: Decision): Boolean = when (d) {
+        Decision.ASK -> true
+        Decision.ALLOW -> tool.alwaysAsk
+        else -> tool.needsApproval(input) && (tool.alwaysAsk || !autoApprove)
     }
 
     fun execute(text: String, images: List<Block.Image> = emptyList()): Flow<AgentEvent> = channelFlow {
@@ -135,6 +142,7 @@ class Agent(
             for (call in calls) {
                 val tool = byName[call.name]
                 val description = tool?.describe(call.input) ?: call.input.toString().take(200)
+                val decision = hooks.decide(call.name, call.input, description)
                 send(AgentEvent.ToolCall(call.name, description))
 
                 var output = ""
@@ -142,12 +150,20 @@ class Agent(
                 if (tool == null) {
                     output = "Неизвестный инструмент: ${call.name}"
                     isError = true
-                } else if (tool.needsApproval(call.input) && (tool.alwaysAsk || !autoApprove) && !approve(call.name, description)) {
+                } else if (hooks.planMode() && call.name !in PLAN_ALLOWED) {
+                    output = "Режим плана: изменять и запускать пока нельзя. Исследуй (чтение, поиск), затем вызови present_plan и дождись одобрения."
+                    isError = true
+                } else if (decision == Decision.DENY) {
+                    output = "Запрещено правилом пользователя в настройках. Не повторяй это, выбери другой путь или спроси пользователя."
+                    isError = true
+                } else if (mustAsk(tool, call.input, decision) && !approve(call.name, description)) {
                     output = "Пользователь отклонил это действие"
                     isError = true
                 } else {
                     try {
+                        hooks.before(tool, call.input)
                         output = withContext(Dispatchers.IO) { tool.run(call.input) }
+                        hooks.after(tool, call.input, output, false)?.let { output += it }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -187,6 +203,8 @@ Tools: read_file, write_file, edit_file, list_dir, grep, bash, python, git.
 ${if (linux) "- Linux notes: before relying on python3/node/git run `which python3 node git`; if something is missing install it with `apk add <pkg>` (python3 py3-pip nodejs npm git build-base). The project is mounted at /work and commands start there. The git tool runs the real git CLI, credentials are already configured." else "- Use the git tool for git (pure-Java implementation), not bash."}
 ${if (adbDevices != null) "- adb controls other Android devices over ADB (Wi-Fi), like on a PC. Saved devices: " + (if (adbDevices.isEmpty()) "none (the user can add some on the Devices screen; you may also pass ip:port)" else adbDevices.joinToString("; ")) + ". Pass device by label or ip:port, never -s. Project files are at /work inside adb push/install paths. Read-only commands run without asking, everything else asks the user." else ""}
 ${if (root) "- root runs a command as root on THIS phone, outside the app sandbox. Every call needs the user's approval. Use it only when really necessary, never touch anything outside the task, and prefer the project folder tools otherwise." else ""}
+- todo keeps a visible checklist; use it for work with 3+ steps and update it as you go.
+- In plan mode (the user message says so) you may only read and search; finish by calling present_plan and wait for approval.
 - task starts a helper agent with its own clean context that only reads (files, grep, web) and returns a short report. Use it for broad code exploration or research so your own context stays small; give it a self-contained prompt.
 - web_search and web_fetch read the internet (docs, errors, libraries); use them when you need current or external information instead of guessing.
 - Some actions need the user's approval; if the user declines, do not retry the same thing, adapt or ask.

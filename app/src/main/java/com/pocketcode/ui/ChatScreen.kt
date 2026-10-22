@@ -68,6 +68,8 @@ fun ChatScreen(
     var newProjectName by remember { mutableStateOf("") }
     var profileMenu by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
+    var showChanges by remember { mutableStateOf(false) }
+    var showTodos by remember { mutableStateOf(false) }
     var confirmStop by remember { mutableStateOf(false) }
     var showQueue by remember { mutableStateOf(false) }
     var editIndex by remember { mutableStateOf(-1) }
@@ -199,6 +201,53 @@ fun ChatScreen(
                         }) { Text("Уточнить сейчас") }
                     }
                 }
+            }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.FilterChip(
+                    selected = vm.planMode,
+                    onClick = { vm.planMode = !vm.planMode },
+                    label = { Text("План") },
+                )
+                if (vm.todos.isNotEmpty()) {
+                    val done = vm.todos.count { it.startsWith("[x]", true) }
+                    TextButton(onClick = { showTodos = !showTodos }) { Text("Задачи $done/${vm.todos.size}") }
+                }
+                if (vm.changes.isNotEmpty()) {
+                    TextButton(onClick = { showChanges = true }) { Text("Правки (${vm.changes.size})") }
+                }
+            }
+            if (showTodos && vm.todos.isNotEmpty()) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    vm.todos.forEach { t ->
+                        val mark = when {
+                            t.startsWith("[x]", true) -> "☑ "
+                            t.startsWith("[~]") -> "▶ "
+                            else -> "☐ "
+                        }
+                        Text(mark + t.removePrefix("[x]").removePrefix("[X]").removePrefix("[~]").removePrefix("[ ]").trim(), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            if (showChanges) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { showChanges = false },
+                    title = { Text("Правки файлов (${vm.changes.size})") },
+                    text = {
+                        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            vm.changes.withIndex().reversed().forEach { (i, ch) ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(ch.path, style = MaterialTheme.typography.bodyMedium)
+                                        Text(if (ch.before == null) "создан" else "изменён", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    TextButton(onClick = { vm.revertChange(i) }) { Text("Откатить") }
+                                }
+                            }
+                            Text("Откат возвращает файл к состоянию до этой правки. Правки через bash здесь не видны, их откатывает снимок задачи.", style = MaterialTheme.typography.bodySmall)
+                        }
+                    },
+                    confirmButton = { TextButton(onClick = { showChanges = false }) { Text("Закрыть") } },
+                )
             }
             if (vm.running) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
