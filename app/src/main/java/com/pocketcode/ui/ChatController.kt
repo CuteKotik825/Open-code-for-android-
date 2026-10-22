@@ -20,6 +20,11 @@ import com.pocketcode.Settings
 import com.pocketcode.SettingsStore
 import com.pocketcode.agent.Agent
 import com.pocketcode.llm.Block
+import com.pocketcode.tools.McpClient
+import com.pocketcode.tools.SubagentTool
+import com.pocketcode.tools.Tool
+import com.pocketcode.tools.McpServer
+import com.pocketcode.tools.McpTool
 import com.pocketcode.agent.Command
 import com.pocketcode.agent.Extensions
 import com.pocketcode.agent.Skill
@@ -692,6 +697,52 @@ class ChatController(private val app: Application) {
     // ---------- ADB и root ----------
 
     private val rootShell = RootShell()
+    var mcpServers by mutableStateOf(settingsStore.loadMcp())
+        private set
+    var mcpMessage by mutableStateOf<String?>(null)
+    var mcpBusy by mutableStateOf(false)
+        private set
+
+    fun addMcp(name: String, url: String, headers: String) {
+        val n = name.trim().ifEmpty { return }
+        val u = url.trim()
+        if (!u.startsWith("http")) { mcpMessage = "Адрес должен начинаться с http:// или https://"; return }
+        if (mcpServers.any { it.name.equals(n, true) }) { mcpMessage = "Сервер с таким именем уже есть."; return }
+        val srv = McpServer(UUID.randomUUID().toString(), n, u, headers.trim())
+        mcpServers = mcpServers + srv
+        settingsStore.saveMcp(mcpServers)
+        refreshMcp(srv.id)
+    }
+
+    fun removeMcp(id: String) {
+        mcpServers = mcpServers.filter { it.id != id }
+        settingsStore.saveMcp(mcpServers)
+        agent = null
+    }
+
+    fun toggleMcp(id: String) {
+        mcpServers = mcpServers.map { if (it.id == id) it.copy(enabled = !it.enabled) else it }
+        settingsStore.saveMcp(mcpServers)
+        agent = null
+    }
+
+    /** Подключается к серверу и запоминает список его инструментов. */
+    fun refreshMcp(id: String) {
+        val srv = mcpServers.firstOrNull { it.id == id } ?: return
+        mcpBusy = true
+        mcpMessage = "Подключаюсь к ${srv.name}…"
+        scope.launch {
+            val r = runCatching { McpClient(srv).listTools() }
+            mcpBusy = false
+            r.onSuccess { tools ->
+                mcpServers = mcpServers.map { if (it.id == id) it.copy(tools = tools) else it }
+                settingsStore.saveMcp(mcpServers)
+                agent = null
+                mcpMessage = "${srv.name}: инструментов ${tools.size}."
+            }.onFailure { mcpMessage = "${srv.name}: ${it.message ?: it}" }
+        }
+    }
+
     var devices by mutableStateOf(settingsStore.loadDevices())
         private set
     var deviceStatus by mutableStateOf<String?>(null)
@@ -1173,7 +1224,13 @@ class ChatController(private val app: Application) {
             if (linuxActive) LinuxGitTool(workspace, shell) else GitTool(workspace, homeDir) { settings },
         )
         val skills = runCatching { extensions.skills() }.getOrDefault(emptyList())
-        val tools = baseTools + listOfNotNull(
+        val mcpTools: List<Tool> = mcpServers.filter { it.enabled }.flatMap { s -> s.tools.map { McpTool(s, it) } }
+        val explorer = SubagentTool(
+            llm,
+            listOf(ReadFileTool(workspace), ListDirTool(workspace), GrepTool(workspace), WebSearchTool(), WebFetchTool()),
+            s.contextTokens,
+        )
+        val tools = baseTools + mcpTools + explorer + listOfNotNull(
             if (skills.isNotEmpty()) SkillTool(extensions) else null,
             WebSearchTool(),
             WebFetchTool(),

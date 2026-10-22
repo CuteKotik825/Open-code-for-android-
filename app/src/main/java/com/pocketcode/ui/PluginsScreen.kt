@@ -37,12 +37,15 @@ fun PluginsScreen(vm: ChatController, onBack: () -> Unit) {
     var url by remember { mutableStateOf("") }
     var newName by remember { mutableStateOf("") }
     var global by remember { mutableStateOf(false) }
+    var mcpName by remember { mutableStateOf("") }
+    var mcpUrl by remember { mutableStateOf("") }
+    var mcpHeaders by remember { mutableStateOf("") }
     LaunchedEffect(Unit) { vm.refreshExtensions() }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Навыки и команды") },
+                title = { Text("Навыки, команды, MCP") },
                 navigationIcon = { TextButton(onClick = onBack) { Text("Назад") } },
             )
         },
@@ -114,6 +117,44 @@ fun PluginsScreen(vm: ChatController, onBack: () -> Unit) {
             )
             Button(onClick = { vm.installPlugin(url); url = "" }, enabled = url.isNotBlank() && !vm.pluginBusy) { Text("Установить плагин") }
             vm.pluginMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+
+            Text("MCP-серверы", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "MCP подключает внешние инструменты (GitHub, базы данных, трекеры) по сети. Нужен сервер с HTTP-адресом (Streamable HTTP). " +
+                    "Инструменты сервера агент получает сам; всё, что не помечено сервером как «только чтение», он подтверждает с тобой.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            vm.mcpServers.forEach { srv ->
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("${srv.name} · инструментов ${srv.tools.size}" + if (srv.enabled) "" else " · выключен", style = MaterialTheme.typography.titleSmall)
+                        Text(srv.url, style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            TextButton(onClick = { vm.refreshMcp(srv.id) }, enabled = !vm.mcpBusy) { Text("Обновить") }
+                            TextButton(onClick = { vm.toggleMcp(srv.id) }) { Text(if (srv.enabled) "Выключить" else "Включить") }
+                            TextButton(onClick = { vm.removeMcp(srv.id) }) { Text("Удалить") }
+                        }
+                    }
+                }
+            }
+            OutlinedTextField(
+                value = mcpName, onValueChange = { mcpName = it }, label = { Text("Имя сервера") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = mcpUrl, onValueChange = { mcpUrl = it }, label = { Text("Адрес (https://…)") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = mcpHeaders, onValueChange = { mcpHeaders = it },
+                label = { Text("Заголовки, по строке (например Authorization: Bearer …)") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = { vm.addMcp(mcpName, mcpUrl, mcpHeaders); mcpName = ""; mcpUrl = ""; mcpHeaders = "" },
+                enabled = mcpName.isNotBlank() && mcpUrl.isNotBlank() && !vm.mcpBusy,
+            ) { Text("Добавить сервер") }
+            vm.mcpMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }

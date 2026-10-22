@@ -151,6 +151,16 @@ class SettingsStore(context: Context) {
         emptyList()
     }
 
+    fun loadMcp(): List<com.pocketcode.tools.McpServer> = try {
+        Json { ignoreUnknownKeys = true }.decodeFromString(prefs.getString("mcp", null) ?: "[]")
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    fun saveMcp(list: List<com.pocketcode.tools.McpServer>) {
+        prefs.edit().putString("mcp", Json.encodeToString(list)).apply()
+    }
+
     fun saveDevices(list: List<com.pocketcode.tools.Device>) {
         prefs.edit().putString("devices", Json.encodeToString(list)).apply()
     }
