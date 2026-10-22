@@ -169,6 +169,8 @@ fun systemPrompt(
     linux: Boolean,
     adbDevices: List<String>? = null,
     root: Boolean = false,
+    instructions: String? = null,
+    skills: List<Skill> = emptyList(),
 ): String = """
 You are PocketCode, a coding agent running inside an Android app on the user's phone. There is no PC:
 everything happens on the device and through the network.
@@ -186,5 +188,6 @@ ${if (root) "- root runs a command as root on THIS phone, outside the app sandbo
   do not refactor or rename things that were not asked.
 - After changes, say briefly what you changed. The screen is small: keep answers short, no long preambles.
 
+${if (skills.isNotEmpty()) "Skills (load one with the skill tool when its description fits the task):\n" + skills.joinToString("\n") { "- ${it.name}: ${it.description}" } + "\n" else ""}${if (instructions != null) "Project instructions written by the user (follow them):\n$instructions\n" else ""}
 Reply in the same language the user writes in.
 """.trimIndent()

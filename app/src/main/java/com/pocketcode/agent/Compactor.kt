@@ -3,6 +3,8 @@ package com.pocketcode.agent
 import com.pocketcode.llm.Block
 import com.pocketcode.llm.LlmClient
 import com.pocketcode.llm.Message
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 private const val SUMMARY_SYSTEM = """You compress the earlier part of a coding-agent conversation into a summary that the agent will use to continue the work.
 Write the summary in the language the user used. Be concrete and compact (up to ~800 words). Include:
@@ -31,6 +33,12 @@ class Compactor(private val llm: LlmClient, private val limitTokens: Int) {
             if (i >= keepFrom) m else m.copy(blocks = m.blocks.map { b ->
                 if (b is Block.ToolResult && b.content.length > PRUNE_OVER) {
                     b.copy(content = b.content.take(PRUNE_KEEP) + "\n...[вывод сокращён для экономии контекста]")
+                } else if (b is Block.ToolUse && b.input.toString().length > PRUNE_OVER) {
+                    // большие write_file/bash-аргументы тоже раздувают контекст
+                    b.copy(input = JsonObject(b.input.mapValues { (_, v) ->
+                        val t = (v as? JsonPrimitive)?.takeIf { it.isString }?.content
+                        if (t != null && t.length > PRUNE_OVER) JsonPrimitive(t.take(PRUNE_KEEP) + "\n...[сокращено]") else v
+                    }))
                 } else b
             })
         }
@@ -47,7 +55,15 @@ class Compactor(private val llm: LlmClient, private val limitTokens: Int) {
 
         val old = history.subList(0, cut).toList()
         val tail = history.subList(cut, history.size).toList()
-        val summary = summarize(old)
+        val summary = try {
+            summarize(old)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // сводку не получили (слабая модель, сеть) — всё равно освобождаем место
+            "[Автосводка недоступна: ${e.message ?: e}. Старая часть диалога удалена. Файлы проекта остаются на диске: перечитай нужное.]\n" +
+                fallbackDigest(old)
+        }
 
         val rebuilt = mutableListOf<Message>()
         rebuilt += Message(
@@ -61,6 +77,18 @@ class Compactor(private val llm: LlmClient, private val limitTokens: Int) {
         history.clear()
         history.addAll(rebuilt)
         return "Контекст сжат: ранняя часть диалога заменена сводкой (~$before → ~${estimateTokens(history)} токенов)."
+    }
+
+    private fun fallbackDigest(old: List<Message>): String {
+        val sb = StringBuilder()
+        for (m in old) for (b in m.blocks) {
+            when (b) {
+                is Block.Text -> if (m.role == "user") sb.append("USER: ").append(b.text.take(300)).append('\n')
+                is Block.ToolUse -> sb.append("tool ").append(b.name).append(": ").append(b.input.toString().take(120)).append('\n')
+                else -> {}
+            }
+        }
+        return if (sb.length > 6000) sb.takeLast(6000).toString() else sb.toString()
     }
 
     private suspend fun summarize(old: List<Message>): String {

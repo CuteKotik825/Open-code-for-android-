@@ -33,7 +33,7 @@ import com.pocketcode.ui.ProjectsScreen
 import com.pocketcode.ui.SessionsScreen
 import com.pocketcode.ui.SettingsScreen
 
-private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES }
+private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS }
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
@@ -107,7 +107,7 @@ class MainActivity : ComponentActivity() {
                     }
                     Screen.PROJECTS -> {
                         BackHandler { screen = Screen.CHAT }
-                        ProjectsScreen(vm, actions, onOpenDevices = { screen = Screen.DEVICES }, onBack = { screen = Screen.CHAT })
+                        ProjectsScreen(vm, actions, onOpenDevices = { screen = Screen.DEVICES }, onOpenPlugins = { screen = Screen.PLUGINS }, onBack = { screen = Screen.CHAT })
                     }
                     Screen.FILES -> FilesScreen(
                         vm.projectRoot,
@@ -121,6 +121,10 @@ class MainActivity : ComponentActivity() {
                     Screen.DEVICES -> {
                         BackHandler { screen = Screen.PROJECTS }
                         DevicesScreen(vm, onBack = { screen = Screen.PROJECTS })
+                    }
+                    Screen.PLUGINS -> {
+                        BackHandler { screen = Screen.PROJECTS }
+                        PluginsScreen(vm, onBack = { screen = Screen.PROJECTS })
                     }
                     Screen.SESSIONS -> {
                         BackHandler { screen = Screen.CHAT }

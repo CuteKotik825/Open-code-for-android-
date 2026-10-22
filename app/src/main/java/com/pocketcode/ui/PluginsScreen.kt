@@ -1,0 +1,119 @@
+package com.pocketcode.ui
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import java.io.File
+
+/** Навыки, команды и плагины. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PluginsScreen(vm: ChatController, onBack: () -> Unit) {
+    var url by remember { mutableStateOf("") }
+    var newName by remember { mutableStateOf("") }
+    var global by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { vm.refreshExtensions() }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Навыки и команды") },
+                navigationIcon = { TextButton(onClick = onBack) { Text("Назад") } },
+            )
+        },
+    ) { padding ->
+        Column(
+            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Как это работает", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "• Файл AGENTS.md (или CLAUDE.md) в корне проекта агент читает сам в начале чата: стек, правила, как запускать тесты.\n" +
+                            "• Навык — папка skills/имя/SKILL.md с полями name и description. Агент видит только описания и подгружает навык, когда он нужен.\n" +
+                            "• Команда — файл commands/имя.md. В чате пишешь /имя текст, и файл уходит агенту (\$ARGUMENTS заменяется на твой текст).\n" +
+                            "• Папки ищутся в .pocketcode/ и .claude/ проекта, в общей папке приложения и в плагинах.\n" +
+                            "• Плагин — любой GitHub-репозиторий с такими папками.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+
+            Text("Навыки (${vm.skillList.size})", style = MaterialTheme.typography.titleMedium)
+            if (vm.skillList.isEmpty()) Text("Пока нет.", style = MaterialTheme.typography.bodySmall)
+            vm.skillList.forEach {
+                Column {
+                    Text(it.name, style = MaterialTheme.typography.titleSmall)
+                    Text("${it.description}\n${it.source}", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            Text("Команды (${vm.commandList.size})", style = MaterialTheme.typography.titleMedium)
+            if (vm.commandList.isEmpty()) Text("Пока нет.", style = MaterialTheme.typography.bodySmall)
+            vm.commandList.forEach {
+                Column {
+                    Text("/${it.name}", style = MaterialTheme.typography.titleSmall)
+                    Text("${it.description}\n${it.source}", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            Text("Создать заготовку", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                value = newName, onValueChange = { newName = it }, label = { Text("Имя (латиницей)") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Для всех проектов", Modifier.weight(1f))
+                androidx.compose.material3.Switch(checked = global, onCheckedChange = { global = it })
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { vm.createSample("skill", newName, global) }, enabled = newName.isNotBlank()) { Text("Навык") }
+                OutlinedButton(onClick = { vm.createSample("command", newName, global) }, enabled = newName.isNotBlank()) { Text("Команда") }
+            }
+            Text(
+                "Созданный файл потом открой в «Файлы» (для проекта — .pocketcode/) и допиши инструкции. Либо попроси агента.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+
+            Text("Плагины", style = MaterialTheme.typography.titleMedium)
+            File(vm.extensions.pluginsDir.path).listFiles()?.filter { it.isDirectory }?.sortedBy { it.name }?.forEach { d ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(d.name, Modifier.weight(1f))
+                    TextButton(onClick = { vm.removePlugin(d.name) }) { Text("Удалить") }
+                }
+            }
+            OutlinedTextField(
+                value = url, onValueChange = { url = it }, label = { Text("owner/repo или адрес GitHub") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(),
+            )
+            Button(onClick = { vm.installPlugin(url); url = "" }, enabled = url.isNotBlank() && !vm.pluginBusy) { Text("Установить плагин") }
+            vm.pluginMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        }
+    }
+}

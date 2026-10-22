@@ -19,6 +19,10 @@ import com.pocketcode.Provider
 import com.pocketcode.Settings
 import com.pocketcode.SettingsStore
 import com.pocketcode.agent.Agent
+import com.pocketcode.agent.Command
+import com.pocketcode.agent.Extensions
+import com.pocketcode.agent.Skill
+import com.pocketcode.tools.SkillTool
 import com.pocketcode.agent.AgentEvent
 import com.pocketcode.agent.systemPrompt
 import com.pocketcode.llm.AnthropicClient
@@ -87,6 +91,67 @@ class ChatController(private val app: Application) {
     private val sessions = SessionStore(File(app.filesDir, "sessions"))
     private val snapshots = SnapshotStore(File(app.filesDir, "snapshots"))
     private val homeDir = File(app.filesDir, "home")
+    val extensions = Extensions({ workspace.root }, File(app.filesDir, "global-ext").apply { mkdirs() }, File(app.filesDir, "plugins").apply { mkdirs() })
+    var skillList by mutableStateOf<List<Skill>>(emptyList())
+        private set
+    var commandList by mutableStateOf<List<Command>>(emptyList())
+        private set
+    var pluginMessage by mutableStateOf<String?>(null)
+    var pluginBusy by mutableStateOf(false)
+        private set
+
+    fun refreshExtensions() {
+        scope.launch(Dispatchers.IO) {
+            val sk = runCatching { extensions.skills() }.getOrDefault(emptyList())
+            val cm = runCatching { extensions.commands() }.getOrDefault(emptyList())
+            withContext(Dispatchers.Main) { skillList = sk; commandList = cm }
+        }
+    }
+
+    fun installPlugin(rawUrl: String) {
+        if (pluginBusy) return
+        var url = rawUrl.trim()
+        if (url.isEmpty()) return
+        if (!url.contains("://")) url = "https://" + if (url.startsWith("github.com/")) url else "github.com/$url"
+        val name = sanitize(url.trimEnd('/').substringAfterLast('/').removeSuffix(".git"))
+        val target = File(extensions.pluginsDir, name)
+        if (name.isEmpty() || target.exists()) { pluginMessage = "Плагин «$name» уже установлен или адрес неверен."; return }
+        pluginBusy = true
+        pluginMessage = "Скачиваю $url…"
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching { GitOps.clone(url, target, settings.githubToken, homeDir) } }
+            pluginBusy = false
+            val e = r.exceptionOrNull()
+            if (e != null) { target.deleteRecursively(); pluginMessage = "Не удалось скачать: ${e.message ?: e}"; return@launch }
+            File(target, ".git").deleteRecursively()
+            agent = null
+            refreshExtensions()
+            val sk = withContext(Dispatchers.IO) { extensions.skills().count { it.source == "плагин $name" } }
+            val cm = withContext(Dispatchers.IO) { extensions.commands().count { it.source == "плагин $name" } }
+            pluginMessage = if (sk + cm == 0) "Скачано, но навыков (skills/*/SKILL.md) и команд (commands/*.md) не найдено."
+            else "Установлено: навыков $sk, команд $cm."
+        }
+    }
+
+    fun removePlugin(name: String) {
+        File(extensions.pluginsDir, name).deleteRecursively()
+        agent = null
+        refreshExtensions()
+    }
+
+    fun createSample(kind: String, name: String, global: Boolean) {
+        val base = if (global) extensions.globalDir else File(workspace.root, ".pocketcode")
+        val n = sanitize(name).ifEmpty { return }
+        if (kind == "skill") {
+            val f = File(base, "skills/$n/SKILL.md")
+            if (!f.exists()) { f.parentFile.mkdirs(); f.writeText("---\nname: $n\ndescription: Когда применять этот навык (одно предложение)\n---\n\nПодробные инструкции для агента.\n") }
+        } else {
+            val f = File(base, "commands/$n.md")
+            if (!f.exists()) { f.parentFile.mkdirs(); f.writeText("---\ndescription: Что делает команда /$n\n---\n\nОпиши задачу для агента. \$ARGUMENTS — то, что ты напишешь после команды.\n") }
+        }
+        agent = null
+        refreshExtensions()
+    }
     private val privateDir = File(app.filesDir, "workspace").apply { mkdirs() }
     private val sharedDir = File(Environment.getExternalStorageDirectory(), "PocketCode")
     private val linuxEnv = LinuxEnv(app).also { it.noSeccomp = settingsStore.loadLinuxNoSeccomp() }
@@ -909,6 +974,7 @@ class ChatController(private val app: Application) {
             "/clear", "/reset" -> { resetContext(); return }
             "/new" -> { newChat(); return }
         }
+        val expanded = extensions.expand(trimmed)
         if (currentId == null) currentId = UUID.randomUUID().toString()
         val current = ensureAgent()
         items += UiItem.User(trimmed)
@@ -930,7 +996,7 @@ class ChatController(private val app: Application) {
                 if (snap == null) {
                     items += UiItem.Notice("Снимок проекта не создан (проект слишком большой), откат этой задачи недоступен.")
                 }
-                current.execute(trimmed).collect { handle(it) }
+                current.execute(expanded ?: trimmed).collect { handle(it) }
             } finally {
                 if (myRun == runId) {
                     // Нормальное завершение; при отмене всё уже убрал cancelRun()
@@ -1072,7 +1138,9 @@ class ChatController(private val app: Application) {
             PythonTool(workspace, python),
             if (linuxActive) LinuxGitTool(workspace, shell) else GitTool(workspace, homeDir) { settings },
         )
+        val skills = runCatching { extensions.skills() }.getOrDefault(emptyList())
         val tools = baseTools + listOfNotNull(
+            if (skills.isNotEmpty()) SkillTool(extensions) else null,
             if (linuxActive) AdbTool(workspace, linuxShell) { devices } else null,
             if (rootEnabled) RootTool(workspace, rootShell) else null,
         )
@@ -1083,6 +1151,8 @@ class ChatController(private val app: Application) {
                 workspace.root.absolutePath, shell.info, linuxActive,
                 adbDevices = if (linuxActive) devices.map { "${it.label} (${it.address})" } else null,
                 root = rootEnabled,
+                instructions = runCatching { extensions.projectInstructions() }.getOrNull(),
+                skills = skills,
             ),
             autoApprove = s.autoApprove,
             contextLimit = s.contextTokens,
