@@ -17,12 +17,17 @@ private const val MAX_OUTPUT = 30_000
 interface Shell {
     val info: String
     suspend fun run(command: String, cwd: File, timeoutSec: Long): String
+
+    /** Заготовка процесса для фонового запуска. */
+    fun builder(command: String, cwd: File): ProcessBuilder
 }
 
 class AndroidShell(private val homeDir: File) : Shell {
     override val info = "Android sh (toybox): ls, cat, grep, sed, find, tar, wget, ping и т.п. Нет python, node, git."
 
-    override suspend fun run(command: String, cwd: File, timeoutSec: Long): String {
+    override suspend fun run(command: String, cwd: File, timeoutSec: Long): String = runProcess(builder(command, cwd), timeoutSec)
+
+    override fun builder(command: String, cwd: File): ProcessBuilder {
         homeDir.mkdirs()
         val pb = ProcessBuilder("/system/bin/sh", "-c", command)
             .directory(cwd)
@@ -33,7 +38,7 @@ class AndroidShell(private val homeDir: File) : Shell {
             put("PATH", "/system/bin:/system/xbin:" + (get("PATH") ?: ""))
             put("TERM", "dumb")
         }
-        return runProcess(pb, timeoutSec)
+        return pb
     }
 }
 

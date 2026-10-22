@@ -20,6 +20,11 @@ import com.pocketcode.Settings
 import com.pocketcode.SettingsStore
 import com.pocketcode.agent.Agent
 import com.pocketcode.llm.Block
+import com.pocketcode.tools.BgProcesses
+import com.pocketcode.tools.BgTool
+import com.pocketcode.tools.CodeSearchTool
+import com.pocketcode.tools.DiagnosticsTool
+import com.pocketcode.tools.PreviewTool
 import com.pocketcode.agent.AgentHooks
 import com.pocketcode.agent.PermissionRules
 import com.pocketcode.tools.PresentPlanTool
@@ -1131,6 +1136,10 @@ class ChatController(private val app: Application) {
         }
     }
 
+    val bgProcs = BgProcesses()
+    var previewUrl by mutableStateOf<String?>(null)
+    var lastPreview by mutableStateOf<String?>(null)
+
     private var limitHit = false
     private var autoChain = 0
 
@@ -1365,7 +1374,13 @@ class ChatController(private val app: Application) {
             listOf(ReadFileTool(workspace), ListDirTool(workspace), GrepTool(workspace), WebSearchTool(), WebFetchTool()),
             s.contextTokens,
         )
-        val tools = baseTools + mcpTools + planTools + explorer + listOfNotNull(
+        val devTools: List<Tool> = listOf(
+            BgTool(workspace, shell, bgProcs),
+            PreviewTool { url -> lastPreview = url; previewUrl = url },
+            CodeSearchTool(workspace),
+            DiagnosticsTool(workspace, python, shell) { changes.map { it.path } },
+        )
+        val tools = baseTools + mcpTools + planTools + devTools + explorer + listOfNotNull(
             if (skills.isNotEmpty()) SkillTool(extensions) else null,
             WebSearchTool(),
             WebFetchTool(),

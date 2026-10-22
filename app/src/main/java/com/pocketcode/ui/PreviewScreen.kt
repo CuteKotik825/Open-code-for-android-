@@ -24,7 +24,12 @@ import java.io.File
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun PreviewScreen(file: File, onBack: () -> Unit) {
+fun PreviewScreen(file: File, onBack: () -> Unit) = PreviewScreen("file://" + file.absolutePath, file.name, onBack)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun PreviewScreen(url: String, title: String, onBack: () -> Unit) {
     var web by remember { mutableStateOf<WebView?>(null) }
     BackHandler {
         val w = web
@@ -33,7 +38,7 @@ fun PreviewScreen(file: File, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(file.name, maxLines = 1) },
+                title = { Text(title, maxLines = 1) },
                 navigationIcon = { TextButton(onClick = onBack) { Text("Назад") } },
                 actions = { TextButton(onClick = { web?.reload() }) { Text("Обновить") } },
             )
@@ -49,7 +54,7 @@ fun PreviewScreen(file: File, onBack: () -> Unit) {
                     @Suppress("DEPRECATION")
                     settings.allowFileAccessFromFileURLs = true
                     webViewClient = WebViewClient()
-                    loadUrl("file://" + file.absolutePath)
+                    loadUrl(url)
                     web = this
                 }
             },

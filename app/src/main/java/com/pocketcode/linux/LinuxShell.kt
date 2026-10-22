@@ -13,7 +13,9 @@ class LinuxShell(private val env: LinuxEnv, private val ws: Workspace) : Shell {
             "Файлы вне /work живут в закрытом rootfs. Нет systemd и демонов, интерактивный ввод не поддерживается."
 
     override suspend fun run(command: String, cwd: File, timeoutSec: Long): String =
-        runProcess(env.processBuilder(command, ws.root, cwd), timeoutSec)
+        runProcess(builder(command, cwd), timeoutSec)
+
+    override fun builder(command: String, cwd: File): ProcessBuilder = env.processBuilder(command, ws.root, cwd)
 }
 
 /** Переключаемый Shell: Linux, если он установлен и включён, иначе системный sh Android. */
@@ -21,4 +23,5 @@ class SwitchableShell(private val android: Shell, private val linux: () -> Shell
     private val current: Shell get() = linux() ?: android
     override val info: String get() = current.info
     override suspend fun run(command: String, cwd: File, timeoutSec: Long) = current.run(command, cwd, timeoutSec)
+    override fun builder(command: String, cwd: File) = current.builder(command, cwd)
 }

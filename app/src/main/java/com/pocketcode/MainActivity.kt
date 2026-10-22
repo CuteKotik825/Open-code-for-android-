@@ -28,6 +28,7 @@ import com.pocketcode.ui.ChatController
 import com.pocketcode.ui.ChatScreen
 import com.pocketcode.ui.DevicesScreen
 import com.pocketcode.ui.PluginsScreen
+import com.pocketcode.ui.PreviewScreen
 import com.pocketcode.ui.FileActions
 import com.pocketcode.ui.FilesScreen
 import com.pocketcode.ui.ProjectsScreen
@@ -84,7 +85,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             AppTheme {
                 var screen by remember { mutableStateOf(Screen.CHAT) }
-                when (screen) {
+                val pv = vm.previewUrl
+                if (pv != null) {
+                    PreviewScreen(pv, "Превью", onBack = { vm.previewUrl = null })
+                } else when (screen) {
                     Screen.CHAT -> ChatScreen(
                         vm,
                         onOpenSettings = { screen = Screen.SETTINGS },

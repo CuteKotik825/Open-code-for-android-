@@ -212,6 +212,7 @@ fun ChatScreen(
                     val done = vm.todos.count { it.startsWith("[x]", true) }
                     TextButton(onClick = { showTodos = !showTodos }) { Text("Задачи $done/${vm.todos.size}") }
                 }
+                vm.lastPreview?.let { TextButton(onClick = { vm.previewUrl = it }) { Text("Превью") } }
                 if (vm.changes.isNotEmpty()) {
                     TextButton(onClick = { showChanges = true }) { Text("Правки (${vm.changes.size})") }
                 }
