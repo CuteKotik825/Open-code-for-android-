@@ -66,6 +66,9 @@ fun ChatScreen(
     var newProjectName by remember { mutableStateOf("") }
     var profileMenu by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
+    val pickImage = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent(),
+    ) { uri -> if (uri != null) vm.attachImage(uri) }
     val listState = rememberLazyListState()
 
     LaunchedEffect(vm.items.size, vm.items.lastOrNull()) {
@@ -168,12 +171,19 @@ fun ChatScreen(
                     }
                 }
             }
+            if (vm.pendingImages.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Картинок приложено: ${vm.pendingImages.size}", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
+                    TextButton(onClick = { vm.removeImage(vm.pendingImages.lastIndex) }) { Text("Убрать последнюю") }
+                }
+            }
             Row(
                 Modifier
                     .fillMaxWidth()
                     .padding(8.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
+                TextButton(onClick = { pickImage.launch("image/*") }, enabled = !vm.running) { Text("🖼") }
                 OutlinedTextField(
                     value = input,
                     onValueChange = { input = it },
@@ -199,7 +209,7 @@ fun ChatScreen(
                             vm.send(input)
                             input = ""
                         },
-                        enabled = input.isNotBlank(),
+                        enabled = input.isNotBlank() || vm.pendingImages.isNotEmpty(),
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Отправить")
                     }
@@ -331,7 +341,10 @@ private fun ItemView(item: UiItem) {
                 modifier = Modifier.fillMaxWidth(0.85f),
             ) {
                 SelectionContainer {
-                    Text(item.text, modifier = Modifier.padding(12.dp))
+                    Text(
+                        (if (item.images > 0) "🖼 ×${item.images}\n" else "") + item.text,
+                        modifier = Modifier.padding(12.dp),
+                    )
                 }
             }
         }

@@ -15,7 +15,7 @@ import java.io.File
 @Serializable
 sealed class UiItem {
     @Serializable
-    data class User(val text: String) : UiItem()
+    data class User(val text: String, val images: Int = 0) : UiItem()
 
     @Serializable
     data class Assistant(val text: String) : UiItem()

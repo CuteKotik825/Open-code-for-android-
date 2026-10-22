@@ -19,6 +19,7 @@ import com.pocketcode.Provider
 import com.pocketcode.Settings
 import com.pocketcode.SettingsStore
 import com.pocketcode.agent.Agent
+import com.pocketcode.llm.Block
 import com.pocketcode.agent.Command
 import com.pocketcode.agent.Extensions
 import com.pocketcode.agent.Skill
@@ -965,9 +966,38 @@ class ChatController(private val app: Application) {
 
     // ---------- запуск агента ----------
 
+    var pendingImages by mutableStateOf<List<Block.Image>>(emptyList())
+        private set
+
+    fun attachImage(uri: android.net.Uri) {
+        scope.launch {
+            val img = withContext(Dispatchers.IO) { runCatching { loadImage(uri) } }
+            img.getOrNull()?.let { pendingImages = pendingImages + it }
+            img.exceptionOrNull()?.let { items += UiItem.Error("Не удалось прочитать картинку: ${it.message}") }
+        }
+    }
+
+    fun removeImage(i: Int) { pendingImages = pendingImages.filterIndexed { idx, _ -> idx != i } }
+
+    private fun loadImage(uri: android.net.Uri): Block.Image {
+        val bytes = app.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: error("файл не открылся")
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2400) sample *= 2
+        val bmp = android.graphics.BitmapFactory.decodeByteArray(
+            bytes, 0, bytes.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample },
+        ) ?: error("не картинка")
+        val scale = 1280f / maxOf(bmp.width, bmp.height)
+        val out = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true) else bmp
+        val bos = java.io.ByteArrayOutputStream()
+        out.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, bos)
+        return Block.Image("image/jpeg", android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP))
+    }
+
     fun send(text: String) {
         val trimmed = text.trim()
-        if (trimmed.isEmpty() || running) return
+        if ((trimmed.isEmpty() && pendingImages.isEmpty()) || running) return
         if (settings.apiKey.isBlank()) {
             items += UiItem.Error("Сначала укажи API-ключ в настройках (шестерёнка сверху).")
             return
@@ -979,7 +1009,9 @@ class ChatController(private val app: Application) {
         val expanded = extensions.expand(trimmed)
         if (currentId == null) currentId = UUID.randomUUID().toString()
         val current = ensureAgent()
-        items += UiItem.User(trimmed)
+        val images = pendingImages
+        pendingImages = emptyList()
+        items += UiItem.User(trimmed, images.size)
         streamingIndex = null
         lastRunFailed = false
         running = true
@@ -998,7 +1030,7 @@ class ChatController(private val app: Application) {
                 if (snap == null) {
                     items += UiItem.Notice("Снимок проекта не создан (проект слишком большой), откат этой задачи недоступен.")
                 }
-                current.execute(expanded ?: trimmed).collect { handle(it) }
+                current.execute(expanded ?: trimmed, images).collect { handle(it) }
             } finally {
                 if (myRun == runId) {
                     // Нормальное завершение; при отмене всё уже убрал cancelRun()

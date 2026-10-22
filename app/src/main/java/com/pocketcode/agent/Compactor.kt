@@ -33,6 +33,8 @@ class Compactor(private val llm: LlmClient, private val limitTokens: Int) {
             if (i >= keepFrom) m else m.copy(blocks = m.blocks.map { b ->
                 if (b is Block.ToolResult && b.content.length > PRUNE_OVER) {
                     b.copy(content = b.content.take(PRUNE_KEEP) + "\n...[вывод сокращён для экономии контекста]")
+                } else if (b is Block.Image) {
+                    Block.Text("[изображение удалено для экономии контекста]")
                 } else if (b is Block.ToolUse && b.input.toString().length > PRUNE_OVER) {
                     // большие write_file/bash-аргументы тоже раздувают контекст
                     b.copy(input = JsonObject(b.input.mapValues { (_, v) ->
@@ -100,6 +102,7 @@ class Compactor(private val llm: LlmClient, private val limitTokens: Int) {
                         sb.append(if (m.role == "user") "USER: " else "ASSISTANT: ").append(b.text.take(4000)).append('\n')
                     is Block.ToolUse ->
                         sb.append("TOOL CALL ${b.name}: ").append(b.input.toString().take(600)).append('\n')
+                    is Block.Image -> sb.append("[пользователь приложил изображение]\n")
                     is Block.ToolResult ->
                         sb.append(if (b.isError) "TOOL ERROR: " else "TOOL RESULT: ").append(b.content.take(800)).append('\n')
                 }
@@ -156,6 +159,7 @@ class Compactor(private val llm: LlmClient, private val limitTokens: Int) {
                     is Block.Text -> b.text.length
                     is Block.ToolUse -> b.name.length + b.input.toString().length
                     is Block.ToolResult -> b.content.length
+                    is Block.Image -> 4500 // ≈1500 токенов
                 }
             }
             return chars / 3

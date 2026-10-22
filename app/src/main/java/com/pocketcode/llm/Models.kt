@@ -17,6 +17,11 @@ sealed class Block {
     @Serializable
     @SerialName("tool_result")
     data class ToolResult(val toolUseId: String, val content: String, val isError: Boolean) : Block()
+
+    /** Картинка пользователя (base64, JPEG/PNG). */
+    @Serializable
+    @SerialName("image")
+    data class Image(val mediaType: String, val data: String) : Block()
 }
 
 /** role: "user" или "assistant" */

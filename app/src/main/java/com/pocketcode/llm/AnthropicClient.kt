@@ -76,6 +76,14 @@ class AnthropicClient(
                                             put("name", b.name)
                                             put("input", b.input)
                                         }
+                                        is Block.Image -> {
+                                            put("type", "image")
+                                            putJsonObject("source") {
+                                                put("type", "base64")
+                                                put("media_type", b.mediaType)
+                                                put("data", b.data)
+                                            }
+                                        }
                                         is Block.ToolResult -> {
                                             put("type", "tool_result")
                                             put("tool_use_id", b.toolUseId)

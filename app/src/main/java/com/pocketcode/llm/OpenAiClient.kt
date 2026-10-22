@@ -88,7 +88,19 @@ class OpenAiClient(
                             }
                         }
                         val text = m.blocks.filterIsInstance<Block.Text>().joinToString("\n") { it.text }
-                        if (text.isNotBlank()) {
+                        val imgs = m.blocks.filterIsInstance<Block.Image>()
+                        if (imgs.isNotEmpty()) {
+                            addJsonObject {
+                                put("role", "user")
+                                putJsonArray("content") {
+                                    if (text.isNotBlank()) addJsonObject { put("type", "text"); put("text", text) }
+                                    for (im in imgs) addJsonObject {
+                                        put("type", "image_url")
+                                        putJsonObject("image_url") { put("url", "data:${im.mediaType};base64,${im.data}") }
+                                    }
+                                }
+                            }
+                        } else if (text.isNotBlank()) {
                             addJsonObject {
                                 put("role", "user")
                                 put("content", text)

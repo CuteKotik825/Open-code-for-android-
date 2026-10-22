@@ -71,9 +71,9 @@ class Agent(
         else history += Message("user", extra)
     }
 
-    fun execute(text: String): Flow<AgentEvent> = channelFlow {
+    fun execute(text: String, images: List<Block.Image> = emptyList()): Flow<AgentEvent> = channelFlow {
         repairHistory()
-        history += Message("user", listOf(Block.Text(text)))
+        history += Message("user", images + Block.Text(text.ifBlank { "(см. изображение)" }))
         var steps = 0
         var overflowRetried = false
         while (true) {
