@@ -66,6 +66,9 @@ fun ChatScreen(
     var newProjectName by remember { mutableStateOf("") }
     var profileMenu by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
+    var showQueue by remember { mutableStateOf(false) }
+    var editIndex by remember { mutableStateOf(-1) }
+    var editText by remember { mutableStateOf("") }
     val pickImage = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.GetContent(),
     ) { uri -> if (uri != null) vm.attachImage(uri) }
@@ -161,7 +164,8 @@ fun ChatScreen(
                         modifier = Modifier.weight(1f),
                     )
                     if (vm.queue.isNotEmpty()) {
-                        TextButton(onClick = { vm.clearQueue() }) { Text("Очистить") }
+                        if (!vm.running) TextButton(onClick = { vm.runQueue() }) { Text("Запустить") }
+                        TextButton(onClick = { showQueue = true }) { Text("Очередь") }
                     }
                     if (vm.running && input.isNotBlank()) {
                         TextButton(onClick = {
@@ -170,6 +174,40 @@ fun ChatScreen(
                         }) { Text("Уточнить сейчас") }
                     }
                 }
+            }
+            if (showQueue) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { showQueue = false; editIndex = -1 },
+                    title = { Text("Очередь задач (${vm.queue.size})") },
+                    text = {
+                        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (vm.queue.isEmpty()) Text("Пусто.")
+                            vm.queue.forEachIndexed { i, t ->
+                                Column {
+                                    if (editIndex == i) {
+                                        OutlinedTextField(value = editText, onValueChange = { editText = it }, modifier = Modifier.fillMaxWidth())
+                                        Row {
+                                            TextButton(onClick = { vm.editQueue(i, editText); editIndex = -1 }) { Text("Сохранить") }
+                                            TextButton(onClick = { editIndex = -1 }) { Text("Отмена") }
+                                        }
+                                    } else {
+                                        Text("${i + 1}. ${t.take(300)}", style = MaterialTheme.typography.bodyMedium)
+                                        Row {
+                                            TextButton(onClick = { vm.moveInQueue(i, -1) }, enabled = i > 0) { Text("↑") }
+                                            TextButton(onClick = { vm.moveInQueue(i, 1) }, enabled = i < vm.queue.lastIndex) { Text("↓") }
+                                            TextButton(onClick = { editIndex = i; editText = t }) { Text("Правка") }
+                                            TextButton(onClick = { vm.removeFromQueue(i) }) { Text("Убрать") }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = { TextButton(onClick = { showQueue = false; editIndex = -1 }) { Text("Закрыть") } },
+                    dismissButton = if (vm.queue.isNotEmpty()) {
+                        { TextButton(onClick = { vm.clearQueue() }) { Text("Очистить всё") } }
+                    } else null,
+                )
             }
             if (vm.pendingImages.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {

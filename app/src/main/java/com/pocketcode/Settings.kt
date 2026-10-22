@@ -149,6 +149,16 @@ class SettingsStore(context: Context) {
         prefs.edit().putBoolean("rootEnabled", v).apply()
     }
 
+    fun loadQueue(): List<String> = try {
+        Json.decodeFromString<List<String>>(prefs.getString("queue", null) ?: "[]")
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    fun saveQueue(list: List<String>) {
+        prefs.edit().putString("queue", Json.encodeToString(list)).apply()
+    }
+
     fun loadDevices(): List<com.pocketcode.tools.Device> = try {
         Json.decodeFromString<List<com.pocketcode.tools.Device>>(prefs.getString("devices", null) ?: "[]")
     } catch (e: Exception) {

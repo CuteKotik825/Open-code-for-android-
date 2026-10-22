@@ -672,7 +672,6 @@ class ChatController(private val app: Application) {
 
     fun newChat() {
         cancelRun()
-        queue.clear()
         notes.clear()
         items.clear()
         history = mutableListOf()
@@ -891,7 +890,9 @@ class ChatController(private val app: Application) {
     private val notes = java.util.concurrent.ConcurrentLinkedQueue<String>()
 
     /** Задачи, которые начнутся одна за другой после текущей. */
-    val queue = mutableStateListOf<String>()
+    val queue = mutableStateListOf<String>().apply { addAll(settingsStore.loadQueue()) }
+
+    private fun saveQueue() = settingsStore.saveQueue(queue.toList())
 
     private var lastRunFailed = false
 
@@ -911,11 +912,39 @@ class ChatController(private val app: Application) {
     fun enqueue(text: String) {
         val t = text.trim()
         if (t.isEmpty()) return
-        if (!running) send(t) else queue += t
+        if (!running) send(t) else { queue += t; saveQueue() }
     }
 
     fun clearQueue() {
         queue.clear()
+        saveQueue()
+    }
+
+    fun removeFromQueue(i: Int) {
+        if (i in queue.indices) { queue.removeAt(i); saveQueue() }
+    }
+
+    fun moveInQueue(i: Int, delta: Int) {
+        val j = i + delta
+        if (i !in queue.indices || j !in queue.indices) return
+        val t = queue.removeAt(i)
+        queue.add(j, t)
+        saveQueue()
+    }
+
+    fun editQueue(i: Int, text: String) {
+        val t = text.trim()
+        if (i !in queue.indices) return
+        if (t.isEmpty()) queue.removeAt(i) else queue[i] = t
+        saveQueue()
+    }
+
+    /** Запускает очередь вручную (после остановки, ошибки или перезапуска приложения). */
+    fun runQueue() {
+        if (running || queue.isEmpty()) return
+        val next = queue.removeAt(0)
+        saveQueue()
+        send(next)
     }
 
     // ---------- откат ----------
@@ -1095,8 +1124,10 @@ class ChatController(private val app: Application) {
                         send("Продолжай работу над задачей, не останавливайся, пока она не выполнена.", auto = true)
                         return@launch
                     }
-                    val next = if (!lastRunFailed && queue.isNotEmpty()) queue.removeAt(0) else null
-                    if (lastRunFailed) queue.clear()
+                    val next = if (!lastRunFailed && queue.isNotEmpty()) queue.removeAt(0).also { saveQueue() } else null
+                    if (lastRunFailed && queue.isNotEmpty()) {
+                        items += UiItem.Notice("Очередь (${queue.size}) приостановлена из-за ошибки. Открой её кнопкой «Очередь» и запусти.")
+                    }
                     if (next != null) {
                         send(next)
                     } else if (!appVisible) {
@@ -1111,7 +1142,6 @@ class ChatController(private val app: Application) {
     /** Кнопка «Стоп» и действие в уведомлении. */
     fun stop() {
         if (!running) return
-        queue.clear()
         notes.clear()
         markPendingInterrupted()
         cancelRun()
