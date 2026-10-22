@@ -25,9 +25,11 @@ class DiagnosticsTool(
     override suspend fun run(input: JsonObject): String {
         val paths = input.str("path")?.let { listOf(it) } ?: recent().distinct().takeLast(10)
         if (paths.isEmpty()) return "Нечего проверять: укажи path."
-        return paths.joinToString("\n") { p ->
-            try { "$p: " + check(p) } catch (e: Exception) { "$p: не удалось проверить (${e.message})" }
+        val lines = mutableListOf<String>()
+        for (p in paths) {
+            lines += try { "$p: " + check(p) } catch (e: Exception) { "$p: не удалось проверить (${e.message})" }
         }
+        return lines.joinToString("\n")
     }
 
     private suspend fun check(path: String): String {
