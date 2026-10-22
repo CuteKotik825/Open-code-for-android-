@@ -20,6 +20,12 @@ import com.pocketcode.Settings
 import com.pocketcode.SettingsStore
 import com.pocketcode.agent.Agent
 import com.pocketcode.llm.Block
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.withLock
+import com.pocketcode.tools.GitHubTool
+import com.pocketcode.tools.SpawnTool
+import com.pocketcode.tools.WorkerResultTool
+import com.pocketcode.tools.Workers
 import com.pocketcode.tools.BgProcesses
 import com.pocketcode.tools.BgTool
 import com.pocketcode.tools.CodeSearchTool
@@ -1136,7 +1142,48 @@ class ChatController(private val app: Application) {
         }
     }
 
+    var schedules by mutableStateOf(settingsStore.loadSchedules())
+        private set
+
+    fun addSchedule(prompt: String, intervalMin: Int) {
+        val p = prompt.trim().ifEmpty { return }
+        schedules = schedules + com.pocketcode.Schedule(UUID.randomUUID().toString(), p, currentProject, intervalMin)
+        settingsStore.saveSchedules(schedules)
+        com.pocketcode.Scheduler.apply(app, schedules)
+    }
+
+    fun toggleSchedule(id: String) {
+        schedules = schedules.map { if (it.id == id) it.copy(enabled = !it.enabled) else it }
+        settingsStore.saveSchedules(schedules)
+        com.pocketcode.Scheduler.apply(app, schedules)
+    }
+
+    fun removeSchedule(id: String) {
+        schedules = schedules.filter { it.id != id }
+        settingsStore.saveSchedules(schedules)
+        com.pocketcode.Scheduler.apply(app, schedules, listOf(id))
+    }
+
+    /** Запуск задачи расписания: свежий чат в её проекте, без подтверждений. false — занято или нечего запускать. */
+    fun runScheduled(id: String, manual: Boolean = false): Boolean {
+        val s = schedules.firstOrNull { it.id == id } ?: return false
+        if (running || settings.apiKey.isBlank()) return false
+        if (!projectDir(s.project).isDirectory) return false
+        schedules = schedules.map { if (it.id == id) it.copy(lastRun = System.currentTimeMillis()) else it }
+        settingsStore.saveSchedules(schedules)
+        switchTo(s.project)
+        unattended = true
+        scope.launch {
+            send("[Запуск по расписанию, пользователя рядом нет: подтверждений не будет, небезопасные действия отклоняются. Не пытайся их обойти.]\n\n" + s.prompt)
+            delay(1000)
+            while (running) delay(1000)
+            unattended = false
+        }
+        return true
+    }
+
     val bgProcs = BgProcesses()
+    private val workers = Workers(scope)
     var previewUrl by mutableStateOf<String?>(null)
     var lastPreview by mutableStateOf<String?>(null)
 
@@ -1253,6 +1300,7 @@ class ChatController(private val app: Application) {
     }
 
     private fun cancelRun() {
+        workers.cancelAll()
         runId++
         job?.cancel()
         job = null
@@ -1327,6 +1375,11 @@ class ChatController(private val app: Application) {
         }
     }
 
+    private val approvalMutex = kotlinx.coroutines.sync.Mutex()
+
+    /** true — запуск без пользователя (по расписанию): подтверждений не будет, опасное отклоняется. */
+    @Volatile var unattended = false
+
     private suspend fun requestApproval(tool: String, description: String): Boolean {
         if (tool == "bash" &&
             ApprovalRules.isSafeBash(
@@ -1334,6 +1387,11 @@ class ChatController(private val app: Application) {
                 allowedRoots = if (linuxActive) null else listOf(workspace.root.absolutePath, workspace.root.canonicalPath),
             )
         ) return true
+        if (unattended) return false
+        return approvalMutex.withLock { askApproval(tool, description) }
+    }
+
+    private suspend fun askApproval(tool: String, description: String): Boolean {
         val deferred = CompletableDeferred<Boolean>()
         approval = ApprovalRequest(tool, description, deferred)
         Notifier.updateWorking(app, "Ждёт подтверждения: $tool")
@@ -1379,6 +1437,7 @@ class ChatController(private val app: Application) {
             PreviewTool { url -> lastPreview = url; previewUrl = url },
             CodeSearchTool(workspace),
             DiagnosticsTool(workspace, python, shell) { changes.map { it.path } },
+            GitHubTool(workspace) { settings.githubToken },
         )
         val tools = baseTools + mcpTools + planTools + devTools + explorer + listOfNotNull(
             if (skills.isNotEmpty()) SkillTool(extensions) else null,
@@ -1387,16 +1446,30 @@ class ChatController(private val app: Application) {
             if (linuxActive) AdbTool(workspace, linuxShell) { devices } else null,
             if (rootEnabled) RootTool(workspace, rootShell) else null,
         )
+        val sysPrompt = systemPrompt(
+            workspace.root.absolutePath, shell.info, linuxActive,
+            adbDevices = if (linuxActive) devices.map { "${it.label} (${it.address})" } else null,
+            root = rootEnabled,
+            instructions = runCatching { extensions.projectInstructions() }.getOrNull(),
+            skills = skills,
+        )
+        val workerTools: List<Tool> = baseTools + devTools.filter { it.name != "preview" }
+        val workerFactory = { _: String ->
+            Agent(
+                llm = llm,
+                tools = workerTools,
+                system = sysPrompt + "\nYou are a parallel worker started by the main agent. Do only the task you were given, touch only the files it names, " +
+                    "and finish with a short report of what you changed.",
+                autoApprove = s.autoApprove,
+                contextLimit = s.contextTokens,
+                maxSteps = if (s.maxSteps == 0) 0 else s.maxSteps * 2,
+                approve = { t, d -> requestApproval(t, d) },
+            )
+        }
         val created = Agent(
             llm = llm,
-            tools = tools,
-            system = systemPrompt(
-                workspace.root.absolutePath, shell.info, linuxActive,
-                adbDevices = if (linuxActive) devices.map { "${it.label} (${it.address})" } else null,
-                root = rootEnabled,
-                instructions = runCatching { extensions.projectInstructions() }.getOrNull(),
-                skills = skills,
-            ),
+            tools = tools + listOf(SpawnTool(workers, workerFactory), WorkerResultTool(workers)),
+            system = sysPrompt,
             autoApprove = s.autoApprove,
             contextLimit = s.contextTokens,
             maxSteps = s.maxSteps,

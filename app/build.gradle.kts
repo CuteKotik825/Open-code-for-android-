@@ -90,6 +90,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.2")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jsoup:jsoup:1.17.2")
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     // Git без внешних программ: чистая Java-реализация
     implementation("org.eclipse.jgit:org.eclipse.jgit:5.13.3.202401111512-r")

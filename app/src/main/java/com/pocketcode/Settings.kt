@@ -163,6 +163,16 @@ class SettingsStore(context: Context) {
         prefs.edit().putString("queue", Json.encodeToString(list)).apply()
     }
 
+    fun loadSchedules(): List<Schedule> = try {
+        Json { ignoreUnknownKeys = true }.decodeFromString(prefs.getString("schedules", null) ?: "[]")
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    fun saveSchedules(list: List<Schedule>) {
+        prefs.edit().putString("schedules", Json.encodeToString(list)).apply()
+    }
+
     fun loadDevices(): List<com.pocketcode.tools.Device> = try {
         Json.decodeFromString<List<com.pocketcode.tools.Device>>(prefs.getString("devices", null) ?: "[]")
     } catch (e: Exception) {

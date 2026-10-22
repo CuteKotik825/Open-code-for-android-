@@ -37,6 +37,8 @@ fun PluginsScreen(vm: ChatController, onBack: () -> Unit) {
     var url by remember { mutableStateOf("") }
     var newName by remember { mutableStateOf("") }
     var global by remember { mutableStateOf(false) }
+    var schedPrompt by remember { mutableStateOf("") }
+    var schedInterval by remember { mutableStateOf(1440) }
     var mcpName by remember { mutableStateOf("") }
     var mcpUrl by remember { mutableStateOf("") }
     var mcpHeaders by remember { mutableStateOf("") }
@@ -117,6 +119,37 @@ fun PluginsScreen(vm: ChatController, onBack: () -> Unit) {
             )
             Button(onClick = { vm.installPlugin(url); url = "" }, enabled = url.isNotBlank() && !vm.pluginBusy) { Text("Установить плагин") }
             vm.pluginMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+
+            Text("Расписание", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Агент сам выполняет задачу в текущем проекте с чистым контекстом: например «прогони тесты и опиши, что сломалось». " +
+                    "Подтверждений нет: безопасные команды чтения выполняются, остальное отклоняется. Результат сохраняется в истории чатов, приходит уведомление. " +
+                    "Android запускает такие задачи не точно по времени и может откладывать их в режиме сна; для надёжности отключи экономию батареи для приложения.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            vm.schedules.forEach { sc ->
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("${sc.project} · каждые ${if (sc.intervalMin >= 1440) "${sc.intervalMin / 1440} сут." else if (sc.intervalMin >= 60) "${sc.intervalMin / 60} ч" else "${sc.intervalMin} мин"}" + if (sc.enabled) "" else " · выключено", style = MaterialTheme.typography.titleSmall)
+                        Text(sc.prompt.take(200), style = MaterialTheme.typography.bodySmall)
+                        Row {
+                            TextButton(onClick = { vm.runScheduled(sc.id, true) }, enabled = !vm.running) { Text("Запустить сейчас") }
+                            TextButton(onClick = { vm.toggleSchedule(sc.id) }) { Text(if (sc.enabled) "Выключить" else "Включить") }
+                            TextButton(onClick = { vm.removeSchedule(sc.id) }) { Text("Удалить") }
+                        }
+                    }
+                }
+            }
+            OutlinedTextField(
+                value = schedPrompt, onValueChange = { schedPrompt = it }, label = { Text("Что делать (для проекта «${vm.currentProject}»)") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(60 to "1 ч", 360 to "6 ч", 1440 to "1 сут.", 10080 to "7 сут.").forEach { (m, l) ->
+                    androidx.compose.material3.FilterChip(selected = schedInterval == m, onClick = { schedInterval = m }, label = { Text(l) })
+                }
+            }
+            Button(onClick = { vm.addSchedule(schedPrompt, schedInterval); schedPrompt = "" }, enabled = schedPrompt.isNotBlank()) { Text("Добавить в расписание") }
 
             Text("MCP-серверы", style = MaterialTheme.typography.titleMedium)
             Text(
