@@ -1,5 +1,6 @@
 package com.pocketcode.ui
 
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -74,8 +75,18 @@ fun ChatScreen(
     ) { uri -> if (uri != null) vm.attachImage(uri) }
     val listState = rememberLazyListState()
 
+    // Автопрокрутка вниз только если пользователь и так внизу; читая историю выше, он остаётся на месте
+    var stick by remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        androidx.compose.runtime.snapshotFlow { listState.isScrollInProgress to listState.canScrollForward }
+            .collect { (inProgress, canForward) -> if (inProgress || !canForward) stick = !canForward }
+    }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     LaunchedEffect(vm.items.size, vm.items.lastOrNull()) {
-        if (vm.items.isNotEmpty()) listState.scrollToItem(vm.items.lastIndex)
+        if (vm.items.isNotEmpty() && stick) {
+            listState.scrollToItem(vm.items.lastIndex)
+            listState.scrollBy(100000f)
+        }
     }
 
     Scaffold(
@@ -150,6 +161,18 @@ fun ChatScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         itemsIndexed(vm.items, key = { i, _ -> i }) { _, item -> ItemView(item) }
+                    }
+                    if (!stick) {
+                        androidx.compose.material3.SmallFloatingActionButton(
+                            onClick = {
+                                stick = true
+                                scope.launch {
+                                    listState.scrollToItem(vm.items.lastIndex)
+                                    listState.scrollBy(100000f)
+                                }
+                            },
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
+                        ) { Text("↓") }
                     }
                 }
             }
