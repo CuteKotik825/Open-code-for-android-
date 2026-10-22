@@ -1,5 +1,6 @@
 package com.pocketcode.ui
 
+import androidx.compose.foundation.gestures.scrollBy
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -67,6 +68,7 @@ fun ChatScreen(
     var newProjectName by remember { mutableStateOf("") }
     var profileMenu by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
+    var confirmStop by remember { mutableStateOf(false) }
     var showQueue by remember { mutableStateOf(false) }
     var editIndex by remember { mutableStateOf(-1) }
     var editText by remember { mutableStateOf("") }
@@ -198,6 +200,21 @@ fun ChatScreen(
                     }
                 }
             }
+            if (vm.running) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Агент работает…", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { confirmStop = true }) { Text("Остановить") }
+                }
+            }
+            if (confirmStop) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { confirmStop = false },
+                    title = { Text("Остановить агента?") },
+                    text = { Text("Текущая задача прервётся. Изменения, которые он уже внёс, останутся (откатить можно в «Проекты» → «Откат»). Очередь сохранится.") },
+                    confirmButton = { TextButton(onClick = { confirmStop = false; vm.stop() }) { Text("Остановить") } },
+                    dismissButton = { TextButton(onClick = { confirmStop = false }) { Text("Продолжить работу") } },
+                )
+            }
             if (showQueue) {
                 androidx.compose.material3.AlertDialog(
                     onDismissRequest = { showQueue = false; editIndex = -1 },
@@ -263,7 +280,6 @@ fun ChatScreen(
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "В очередь")
                     }
-                    Button(onClick = { vm.stop() }) { Text("Стоп") }
                 } else {
                     IconButton(
                         onClick = {
