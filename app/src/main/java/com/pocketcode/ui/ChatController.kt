@@ -1017,6 +1017,9 @@ class ChatController(private val app: Application) {
 
     // ---------- запуск агента ----------
 
+    private var limitHit = false
+    private var autoChain = 0
+
     var pendingImages by mutableStateOf<List<Block.Image>>(emptyList())
         private set
 
@@ -1046,7 +1049,7 @@ class ChatController(private val app: Application) {
         return Block.Image("image/jpeg", android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP))
     }
 
-    fun send(text: String) {
+    fun send(text: String, auto: Boolean = false) {
         val trimmed = text.trim()
         if ((trimmed.isEmpty() && pendingImages.isEmpty()) || running) return
         if (settings.apiKey.isBlank()) {
@@ -1060,6 +1063,8 @@ class ChatController(private val app: Application) {
         val expanded = extensions.expand(trimmed)
         if (currentId == null) currentId = UUID.randomUUID().toString()
         val current = ensureAgent()
+        if (auto) autoChain++ else autoChain = 0
+        limitHit = false
         val images = pendingImages
         pendingImages = emptyList()
         items += UiItem.User(trimmed, images.size)
@@ -1086,6 +1091,10 @@ class ChatController(private val app: Application) {
                 if (myRun == runId) {
                     // Нормальное завершение; при отмене всё уже убрал cancelRun()
                     finishRun()
+                    if (limitHit && !lastRunFailed && settings.autoContinue && autoChain < 50) {
+                        send("Продолжай работу над задачей, не останавливайся, пока она не выполнена.", auto = true)
+                        return@launch
+                    }
                     val next = if (!lastRunFailed && queue.isNotEmpty()) queue.removeAt(0) else null
                     if (lastRunFailed) queue.clear()
                     if (next != null) {
@@ -1171,6 +1180,12 @@ class ChatController(private val app: Application) {
                 Notifier.updateWorking(app, "Агент работает…")
                 persist()
             }
+            is AgentEvent.StepLimit -> {
+                streamingIndex = null
+                limitHit = true
+                items += UiItem.Notice("Лимит шагов за запуск достигнут" + if (settings.autoContinue) ", продолжаю автоматически." else ". Напиши «продолжай».")
+                persist()
+            }
             is AgentEvent.Error -> {
                 lastRunFailed = true
                 streamingIndex = null
@@ -1249,6 +1264,7 @@ class ChatController(private val app: Application) {
             ),
             autoApprove = s.autoApprove,
             contextLimit = s.contextTokens,
+            maxSteps = s.maxSteps,
             approve = ::requestApproval,
             history = history,
             pollNotes = { generateSequence { notes.poll() }.toList() },

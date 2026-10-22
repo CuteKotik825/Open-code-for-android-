@@ -28,7 +28,7 @@ class SubagentTool(
         val prompt = input.need("prompt")
         val sub = Agent(
             llm = llm, tools = readTools, system = SUB_SYSTEM, autoApprove = true,
-            contextLimit = contextLimit, approve = { _, _ -> true },
+            contextLimit = contextLimit, approve = { _, _ -> true }, maxSteps = 30,
         )
         val cur = StringBuilder()
         var error: String? = null

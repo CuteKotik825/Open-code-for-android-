@@ -27,9 +27,11 @@ sealed class AgentEvent {
     /** Служебное сообщение в ленте, например «контекст сжат». */
     data class Notice(val text: String) : AgentEvent()
     object Done : AgentEvent()
+
+    /** Достигнут лимит шагов за один запуск. */
+    object StepLimit : AgentEvent()
 }
 
-private const val MAX_STEPS = 40
 private const val MAX_TOOL_OUTPUT = 30_000
 
 class Agent(
@@ -45,6 +47,8 @@ class Agent(
     val history: MutableList<Message> = mutableListOf(),
     /** Забирает уточнения, которые пользователь написал, пока агент работает. */
     private val pollNotes: () -> List<String> = { emptyList() },
+    /** Шагов за запуск; 0 — без лимита. */
+    private val maxSteps: Int = 0,
 ) {
     private val compactor = Compactor(llm, contextLimit)
     private val byName = tools.associateBy { it.name }
@@ -77,8 +81,8 @@ class Agent(
         var steps = 0
         var overflowRetried = false
         while (true) {
-            if (++steps > MAX_STEPS) {
-                send(AgentEvent.Error("Достигнут лимит шагов ($MAX_STEPS). Напиши «продолжай», чтобы идти дальше."))
+            if (maxSteps > 0 && ++steps > maxSteps) {
+                send(AgentEvent.StepLimit)
                 break
             }
             injectNotes(pollNotes())

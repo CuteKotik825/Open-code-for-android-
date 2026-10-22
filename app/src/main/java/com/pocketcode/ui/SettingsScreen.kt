@@ -58,6 +58,8 @@ fun SettingsScreen(
     var allowRules by remember { mutableStateOf(initial.allowRules) }
     var resetDone by remember { mutableStateOf(false) }
     var promptCaching by remember { mutableStateOf(initial.promptCaching) }
+    var maxSteps by remember { mutableStateOf(initial.maxSteps.toString()) }
+    var autoContinue by remember { mutableStateOf(initial.autoContinue) }
 
     // Профили ключей: форма ниже всегда редактирует активный профиль
     var profiles by remember { mutableStateOf(vm.profiles) }
@@ -211,6 +213,23 @@ fun SettingsScreen(
                 }
                 Switch(checked = promptCaching, onCheckedChange = { promptCaching = it })
             }
+            OutlinedTextField(
+                value = maxSteps,
+                onValueChange = { maxSteps = it.filter(Char::isDigit).take(4) },
+                label = { Text("Шагов за один запуск (0 — без лимита)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Автопродолжение")
+                    Text(
+                        "Когда лимит шагов достигнут, агент сам получает «продолжай» и идёт дальше до конца задачи (не более 50 раз подряд). Очередь сообщений начнётся после этого.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(checked = autoContinue, onCheckedChange = { autoContinue = it })
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Новый чат при запуске")
@@ -334,6 +353,8 @@ fun SettingsScreen(
                             smartApprove = smartApprove,
                             allowRules = allowRules,
                             promptCaching = promptCaching,
+                            maxSteps = (maxSteps.toIntOrNull() ?: 60).coerceIn(0, 1000),
+                            autoContinue = autoContinue,
                         ),
                         finalProfiles,
                         activeId,

@@ -156,7 +156,7 @@ fun ChatScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        if (vm.queue.isNotEmpty()) "В очереди задач: ${vm.queue.size}" else "Сообщение уйдёт агенту на следующем шаге",
+                        if (vm.queue.isNotEmpty()) "В очереди задач: ${vm.queue.size}" else "Отправка ставит в очередь. «Уточнить сейчас» передаст агенту на следующем шаге",
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.weight(1f),
                     )
@@ -165,9 +165,9 @@ fun ChatScreen(
                     }
                     if (vm.running && input.isNotBlank()) {
                         TextButton(onClick = {
-                            vm.enqueue(input)
+                            vm.sendWhileRunning(input)
                             input = ""
-                        }) { Text("В очередь") }
+                        }) { Text("Уточнить сейчас") }
                     }
                 }
             }
@@ -195,12 +195,12 @@ fun ChatScreen(
                 if (vm.running) {
                     IconButton(
                         onClick = {
-                            vm.sendWhileRunning(input)
+                            vm.enqueue(input)
                             input = ""
                         },
                         enabled = input.isNotBlank(),
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Отправить агенту сейчас")
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "В очередь")
                     }
                     Button(onClick = { vm.stop() }) { Text("Стоп") }
                 } else {

@@ -42,6 +42,8 @@ data class Settings(
     val allowRules: String = "",
     /** Кэширование контекста (prompt caching) у провайдеров, которые это поддерживают. */
     val promptCaching: Boolean = true,
+    val maxSteps: Int = 60,
+    val autoContinue: Boolean = true,
 )
 
 const val DEFAULT_PROJECT = "main"
@@ -99,6 +101,8 @@ class SettingsStore(context: Context) {
             smartApprove = prefs.getBoolean("smartApprove", d.smartApprove),
             allowRules = prefs.getString("allowRules", null) ?: "",
             promptCaching = prefs.getBoolean("promptCaching", d.promptCaching),
+            maxSteps = prefs.getInt("maxSteps", d.maxSteps),
+            autoContinue = prefs.getBoolean("autoContinue", d.autoContinue),
         )
     }
 
@@ -180,6 +184,8 @@ class SettingsStore(context: Context) {
             .putBoolean("smartApprove", s.smartApprove)
             .putString("allowRules", s.allowRules)
             .putBoolean("promptCaching", s.promptCaching)
+            .putInt("maxSteps", s.maxSteps)
+            .putBoolean("autoContinue", s.autoContinue)
             .apply()
     }
 }
