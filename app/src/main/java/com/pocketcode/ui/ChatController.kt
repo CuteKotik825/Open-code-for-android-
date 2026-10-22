@@ -23,6 +23,8 @@ import com.pocketcode.agent.Command
 import com.pocketcode.agent.Extensions
 import com.pocketcode.agent.Skill
 import com.pocketcode.tools.SkillTool
+import com.pocketcode.tools.WebFetchTool
+import com.pocketcode.tools.WebSearchTool
 import com.pocketcode.agent.AgentEvent
 import com.pocketcode.agent.systemPrompt
 import com.pocketcode.llm.AnthropicClient
@@ -1141,6 +1143,8 @@ class ChatController(private val app: Application) {
         val skills = runCatching { extensions.skills() }.getOrDefault(emptyList())
         val tools = baseTools + listOfNotNull(
             if (skills.isNotEmpty()) SkillTool(extensions) else null,
+            WebSearchTool(),
+            WebFetchTool(),
             if (linuxActive) AdbTool(workspace, linuxShell) { devices } else null,
             if (rootEnabled) RootTool(workspace, rootShell) else null,
         )

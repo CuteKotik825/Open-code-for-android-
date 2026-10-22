@@ -27,6 +27,7 @@ import androidx.core.content.ContextCompat
 import com.pocketcode.ui.ChatController
 import com.pocketcode.ui.ChatScreen
 import com.pocketcode.ui.DevicesScreen
+import com.pocketcode.ui.PluginsScreen
 import com.pocketcode.ui.FileActions
 import com.pocketcode.ui.FilesScreen
 import com.pocketcode.ui.ProjectsScreen
