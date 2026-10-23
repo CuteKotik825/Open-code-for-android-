@@ -54,7 +54,13 @@ class WriteFileTool(private val ws: Workspace) : Tool {
     override fun needsApproval(input: JsonObject) = true
     override fun describe(input: JsonObject): String {
         val content = input.str("content").orEmpty()
-        return "Запись файла ${input.str("path")} (${content.length} символов, ${content.lines().size} строк)"
+        val head = "Запись файла ${input.str("path")} (${content.length} символов, ${content.lines().size} строк)"
+        val before = runCatching {
+            val f = ws.resolve(input.str("path").orEmpty())
+            if (f.isFile && f.length() < 500_000) f.readText() else null
+        }.getOrNull()
+        return if (before != null) head + "\n" + lineDiff(before, content)
+        else head + " — новый файл\n" + content.lines().take(12).joinToString("\n") { "+ " + it.take(160) } + if (content.lines().size > 12) "\n+ … ещё ${content.lines().size - 12}" else ""
     }
 
     override suspend fun run(input: JsonObject): String {
@@ -90,9 +96,14 @@ class EditFileTool(private val ws: Workspace) : Tool {
 
     override fun needsApproval(input: JsonObject) = true
     override fun describe(input: JsonObject): String {
-        val old = input.str("old_string").orEmpty().take(300)
-        val new = input.str("new_string").orEmpty().take(300)
-        return "Правка ${input.str("path")}\n--- было\n$old\n+++ стало\n$new"
+        val old = input.str("old_string").orEmpty()
+        val new = input.str("new_string").orEmpty()
+        val preview = runCatching {
+            val f = ws.resolve(input.str("path").orEmpty())
+            val text = f.readText()
+            lineDiff(text, if (input.bool("replace_all") == true) text.replace(old, new) else text.replaceFirst(old, new))
+        }.getOrNull()
+        return "Правка ${input.str("path")}\n" + (preview ?: "--- было\n${old.take(300)}\n+++ стало\n${new.take(300)}")
     }
 
     override suspend fun run(input: JsonObject): String {

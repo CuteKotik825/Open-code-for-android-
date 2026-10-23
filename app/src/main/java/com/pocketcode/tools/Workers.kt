@@ -15,10 +15,10 @@ class Workers(private val scope: CoroutineScope) {
     private val map = LinkedHashMap<String, W>()
 
     @Synchronized
-    fun spawn(name: String, task: String, factory: () -> Agent) {
+    fun spawn(name: String, task: String, factory: () -> Pair<Agent, (() -> String)?>) {
         map[name]?.let { require(!it.deferred.isActive) { "Исполнитель «$name» уже работает" } }
         require(map.values.count { it.deferred.isActive } < 3) { "Одновременно можно не более 3 исполнителей" }
-        val agent = factory()
+        val (agent, finish) = factory()
         map[name] = W(name, task, scope.async(Dispatchers.Default) {
             val cur = StringBuilder()
             var err: String? = null
@@ -31,7 +31,9 @@ class Workers(private val scope: CoroutineScope) {
                 }
             }
             val text = cur.toString().trim()
-            if (text.isEmpty() && err != null) "Ошибка: $err" else text.ifEmpty { "(исполнитель ничего не написал)" }
+            val report = if (text.isEmpty() && err != null) "Ошибка: $err" else text.ifEmpty { "(исполнитель ничего не написал)" }
+            val merged = finish?.let { runCatching { it() }.getOrElse { e -> "Не удалось влить изолированную копию: ${e.message}" } }
+            if (merged != null) report + "\n\n" + merged else report
         })
     }
 
@@ -48,7 +50,7 @@ class Workers(private val scope: CoroutineScope) {
     @Synchronized fun cancelAll() { map.values.forEach { if (it.deferred.isActive) it.deferred.cancel() } }
 }
 
-class SpawnTool(private val workers: Workers, private val factory: (String) -> Agent) : Tool {
+class SpawnTool(private val workers: Workers, private val factory: (String, String, Boolean) -> Pair<Agent, (() -> String)?>) : Tool {
     override val name = "spawn"
     override val description =
         "Запустить параллельного исполнителя: отдельный агент со своим контекстом, который сам правит файлы и запускает команды, пока ты занят другим. " +
@@ -57,13 +59,15 @@ class SpawnTool(private val workers: Workers, private val factory: (String) -> A
     override val schema = objSchema(
         Prop("name", "string", "Короткое имя исполнителя"),
         Prop("task", "string", "Полное задание"),
+        Prop("isolated", "boolean", "true — работать в отдельной копии проекта; по завершении изменения вливаются обратно, конфликты не теряются", required = false),
     )
     override fun needsApproval(input: JsonObject) = false
     override fun describe(input: JsonObject) = "исполнитель ${input.str("name")}: ${(input.str("task") ?: "").take(80)}"
     override suspend fun run(input: JsonObject): String {
         val n = input.need("name").trim()
         val task = input.need("task")
-        workers.spawn(n, task) { factory(task) }
+        val isolated = input.bool("isolated") == true
+        workers.spawn(n, task) { factory(n, task, isolated) }
         return "Исполнитель «$n» запущен. Продолжай свою часть, затем забери результат через worker_result."
     }
 }

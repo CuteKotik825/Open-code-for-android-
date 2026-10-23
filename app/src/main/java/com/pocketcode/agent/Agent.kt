@@ -213,6 +213,7 @@ ${if (root) "- root runs a command as root on THIS phone, outside the app sandbo
 - bg starts long-running processes (dev servers, watchers, long tests) in the background and lets you read their output; then use preview to show a local web page to the user. Never run a server with plain bash: it would block until timeout.
 - code_search finds relevant files/definitions by meaning; diagnostics checks syntax of files you edited (run it after edits).
 - github works with the repo's pull requests, issues and CI checks (needs the token from settings). spawn starts parallel workers with their own context for independent parts of a big task (different files); collect them with worker_result before you finish.
+- run_tests runs the project's tests and returns a compact failure summary. spawn with isolated=true gives a worker its own copy of the project (merged back afterwards).
 - todo keeps a visible checklist; use it for work with 3+ steps and update it as you go.
 - In plan mode (the user message says so) you may only read and search; finish by calling present_plan and wait for approval.
 - task starts a helper agent with its own clean context that only reads (files, grep, web) and returns a short report. Use it for broad code exploration or research so your own context stays small; give it a self-contained prompt.

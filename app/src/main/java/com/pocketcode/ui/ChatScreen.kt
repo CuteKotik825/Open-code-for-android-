@@ -49,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -418,11 +419,26 @@ fun ChatScreen(
             title = { Text("Разрешить: ${request.tool}?") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
+                    val red = androidx.compose.ui.graphics.Color(0xFFE57373)
+                    val green = androidx.compose.ui.graphics.Color(0xFF81C784)
                     Text(
-                        request.description,
+                        androidx.compose.ui.text.buildAnnotatedString {
+                            request.description.lines().forEachIndexed { i, line ->
+                                if (i > 0) append("\n")
+                                val color = when {
+                                    line.startsWith("- ") -> red
+                                    line.startsWith("+ ") -> green
+                                    else -> null
+                                }
+                                if (color != null) withStyle(androidx.compose.ui.text.SpanStyle(color = color)) { append(line) } else append(line)
+                            }
+                        },
                         fontFamily = FontFamily.Monospace,
                         fontSize = 12.sp,
                     )
+                    if (request.tool == "write_file" || request.tool == "edit_file") {
+                        TextButton(onClick = { vm.allowEditsThisRun() }) { Text("Принимать все правки до конца задачи") }
+                    }
                 }
             },
             confirmButton = {

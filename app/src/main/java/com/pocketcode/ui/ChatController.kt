@@ -20,6 +20,8 @@ import com.pocketcode.Settings
 import com.pocketcode.SettingsStore
 import com.pocketcode.agent.Agent
 import com.pocketcode.llm.Block
+import com.pocketcode.tools.TestTool
+import com.pocketcode.tools.Shell
 import com.pocketcode.AppLog
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -1544,6 +1546,7 @@ class ChatController(private val app: Application) {
     }
 
     private fun finishRun() {
+        editsAllowedThisRun = false
         running = false
         streamingIndex = null
         approval = null
@@ -1636,6 +1639,15 @@ class ChatController(private val app: Application) {
     /** true — запуск без пользователя (по расписанию): подтверждений не будет, опасное отклоняется. */
     @Volatile var unattended = false
 
+    /** «Принимать правки файлов до конца этой задачи». */
+    var editsAllowedThisRun by mutableStateOf(false)
+        private set
+
+    fun allowEditsThisRun() {
+        editsAllowedThisRun = true
+        answerApproval(true)
+    }
+
     private suspend fun requestApproval(tool: String, description: String): Boolean {
         if (tool == "bash" &&
             ApprovalRules.isSafeBash(
@@ -1644,6 +1656,7 @@ class ChatController(private val app: Application) {
             )
         ) return true
         if (unattended) return false
+        if (editsAllowedThisRun && (tool == "write_file" || tool == "edit_file")) return true
         return approvalMutex.withLock { askApproval(tool, description) }
     }
 
@@ -1693,6 +1706,7 @@ class ChatController(private val app: Application) {
             PreviewTool { url -> lastPreview = url; previewUrl = url },
             CodeSearchTool(workspace),
             DiagnosticsTool(workspace, python, shell) { changes.map { it.path } },
+            TestTool(workspace, shell, python),
             GitHubTool(workspace) { settings.githubToken },
         )
         val tools = baseTools + mcpTools + planTools + devTools + explorer + listOfNotNull(
@@ -1710,17 +1724,32 @@ class ChatController(private val app: Application) {
             skills = skills,
         )
         val workerTools: List<Tool> = baseTools + devTools.filter { it.name != "preview" }
-        val workerFactory = { _: String ->
+        val workerFactory = { name: String, _: String, isolated: Boolean ->
+            var tools2 = workerTools
+            var finish: (() -> String)? = null
+            var promptNote = ""
+            if (isolated) {
+                val wt = com.pocketcode.tools.WorkTree.create(workspace.root, File(app.filesDir, "worktrees/${sanitize(name)}-${System.currentTimeMillis()}"))
+                val ws2 = Workspace(wt.copy)
+                val shell2: Shell = if (linuxActive) LinuxShell(linuxEnv, ws2) else androidShell
+                tools2 = listOf(
+                    ReadFileTool(ws2), WriteFileTool(ws2), EditFileTool(ws2), ListDirTool(ws2), GrepTool(ws2),
+                    BashTool(ws2, shell2), PythonTool(ws2, python), CodeSearchTool(ws2),
+                    DiagnosticsTool(ws2, python, shell2) { emptyList() },
+                )
+                finish = { wt.merge() }
+                promptNote = "\nYour workspace is an isolated copy of the project: change files freely; your changes are merged back when you finish."
+            }
             Agent(
                 llm = llm,
-                tools = workerTools,
+                tools = tools2,
                 system = sysPrompt + "\nYou are a parallel worker started by the main agent. Do only the task you were given, touch only the files it names, " +
-                    "and finish with a short report of what you changed.",
+                    "and finish with a short report of what you changed." + promptNote,
                 autoApprove = s.autoApprove,
                 contextLimit = s.contextTokens,
                 maxSteps = if (s.maxSteps == 0) 0 else s.maxSteps * 2,
                 approve = { t, d -> requestApproval(t, d) },
-            )
+            ) to finish
         }
         val created = Agent(
             llm = llm,
