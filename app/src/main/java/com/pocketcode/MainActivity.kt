@@ -133,6 +133,7 @@ class MainActivity : ComponentActivity() {
                             vm.openFolderAsProject(dir)
                             screen = Screen.CHAT
                         },
+                        checker = { name, text -> vm.checkText(name, text) },
                     )
                     Screen.DEVICES -> {
                         BackHandler { screen = Screen.PROJECTS }

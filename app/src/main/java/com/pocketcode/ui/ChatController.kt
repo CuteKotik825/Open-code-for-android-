@@ -1207,6 +1207,10 @@ class ChatController(private val app: Application) {
         Provider.OPENAI -> OpenAiClient(s.baseUrl, s.apiKey, model, s.promptCaching)
     }
 
+    private val editorDiag by lazy { DiagnosticsTool(workspace, python, shell) { emptyList() } }
+
+    suspend fun checkText(fileName: String, text: String): String = editorDiag.checkText(fileName, text)
+
     private fun makeFallback(s: Settings): LlmClient? {
         val p = profiles.firstOrNull { it.id == s.fallbackProfileId && it.id != activeProfileId } ?: return null
         return makeLlm(s.copy(provider = p.provider, baseUrl = p.baseUrl, apiKey = p.apiKey), p.model)

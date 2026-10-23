@@ -32,8 +32,21 @@ class DiagnosticsTool(
         return lines.joinToString("\n")
     }
 
-    private suspend fun check(path: String): String {
-        val f = ws.resolve(path)
+    private suspend fun check(path: String): String = checkFile(ws.resolve(path))
+
+    /** Проверка произвольного текста (из редактора, ещё не сохранённого): через временный файл внутри проекта. */
+    suspend fun checkText(fileName: String, text: String): String {
+        val tmp = java.io.File(ws.root, ".pocketcode/tmp/check_${System.currentTimeMillis()}_" + fileName.substringAfterLast('/'))
+        tmp.parentFile?.mkdirs()
+        return try {
+            tmp.writeText(text)
+            checkFile(tmp)
+        } finally {
+            tmp.delete()
+        }
+    }
+
+    suspend fun checkFile(f: java.io.File): String {
         if (!f.isFile) return "файла нет"
         if (f.length() > 1_000_000) return "слишком большой"
         val text = f.readText()

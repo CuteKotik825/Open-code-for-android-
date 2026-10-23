@@ -73,7 +73,14 @@ private fun humanSize(n: Long): String = when {
 /** Просмотр и правка файлов текущего проекта. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FilesScreen(root: File, projectName: String, onBack: () -> Unit, onStartHere: (File) -> Unit) {
+fun FilesScreen(
+    root: File,
+    projectName: String,
+    onBack: () -> Unit,
+    onStartHere: (File) -> Unit,
+    /** Проверка синтаксиса текста: (имя файла, текст) -> результат. */
+    checker: (suspend (String, String) -> String)? = null,
+) {
     val scope = rememberCoroutineScope()
     var dir by remember { mutableStateOf(root) }
     var tick by remember { mutableIntStateOf(0) }
@@ -91,6 +98,9 @@ fun FilesScreen(root: File, projectName: String, onBack: () -> Unit, onStartHere
     var findText by remember { mutableStateOf("") }
     var replaceText by remember { mutableStateOf("") }
     var matchRange by remember { mutableStateOf<IntRange?>(null) }
+    var checkResult by remember { mutableStateOf<String?>(null) }
+    var defs by remember { mutableStateOf<List<Triple<File, Int, String>>?>(null) }
+    var pendingLine by remember { mutableStateOf<Int?>(null) }
     val vScroll = rememberScrollState()
     val density = LocalDensity.current
     val dark = isSystemInDarkTheme()
@@ -136,7 +146,42 @@ fun FilesScreen(root: File, projectName: String, onBack: () -> Unit, onStartHere
             r.onSuccess {
                 original = content
                 message = "Сохранено"
+                if (checker != null && f.extension.lowercase() in setOf("py", "json", "xml", "svg", "js", "sh")) {
+                    checkResult = withContext(Dispatchers.IO) { runCatching { checker(f.name, content) }.getOrElse { "не удалось проверить" } }
+                }
             }.onFailure { message = "Не удалось сохранить: ${it.message}" }
+        }
+    }
+
+    fun wordAtCursor(): String {
+        val pos = editorValue.selection.start.coerceIn(0, text.length)
+        var s = pos
+        var e = pos
+        fun isId(c: Char) = c.isLetterOrDigit() || c == '_'
+        while (s > 0 && isId(text[s - 1])) s--
+        while (e < text.length && isId(text[e])) e++
+        return text.substring(s, e)
+    }
+
+    fun findDefinitions() {
+        val w = wordAtCursor()
+        if (w.length < 2) { message = "Поставь курсор на имя функции, класса или переменной."; return }
+        scope.launch {
+            val found = withContext(Dispatchers.IO) {
+                val skip = setOf(".git", "node_modules", "build", "dist", "__pycache__", ".gradle", ".idea", "venv", ".venv", "target")
+                val def = Regex("""\b(def|class|function|fun|func|interface|struct|enum|trait|type|object|const|val|var|let)\s+${Regex.escape(w)}\b|\b${Regex.escape(w)}\s*[:=]\s*(function|\(|async)""")
+                val out = mutableListOf<Triple<File, Int, String>>()
+                root.walkTopDown().onEnter { it == root || it.name !in skip }.forEach { f ->
+                    if (out.size >= 30 || !f.isFile || f.length() > 400_000) return@forEach
+                    runCatching {
+                        f.useLines { seq ->
+                            seq.forEachIndexed { i, line -> if (def.containsMatchIn(line) && out.size < 30) out += Triple(f, i + 1, line.trim().take(120)) }
+                        }
+                    }
+                }
+                out
+            }
+            if (found.isEmpty()) message = "Определение «$w» не найдено" else defs = found
         }
     }
 
@@ -163,6 +208,7 @@ fun FilesScreen(root: File, projectName: String, onBack: () -> Unit, onStartHere
         showSearch = false
         matchRange = null
         confirmLeave = false
+        checkResult = null
         tick++
     }
 
@@ -181,6 +227,36 @@ fun FilesScreen(root: File, projectName: String, onBack: () -> Unit, onStartHere
         PreviewScreen(previewFile!!, onBack = { previewFile = null })
         return
     }
+    LaunchedEffect(editing, pendingLine) {
+        val line = pendingLine
+        if (editing != null && line != null) {
+            val px = with(density) { 18.sp.toPx() }
+            vScroll.scrollTo(((line - 1) * px - 120).coerceAtLeast(0f).toInt())
+            pendingLine = null
+        }
+    }
+    defs?.let { list ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { defs = null },
+            title = { Text("Определения (${list.size})") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    list.forEach { (f, line, src) ->
+                        TextButton(onClick = {
+                            defs = null
+                            checkResult = null
+                            pendingLine = line
+                            if (editing?.canonicalPath == f.canonicalPath) {
+                                // тот же файл: только прокрутка
+                                scope.launch { pendingLine = null; vScroll.animateScrollTo(((line - 1) * with(density) { 18.sp.toPx() } - 120).coerceAtLeast(0f).toInt()) }
+                            } else open(f)
+                        }) { Text("${f.relativeTo(root).path}:$line\n$src", fontFamily = FontFamily.Monospace, fontSize = 11.sp) }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { defs = null }) { Text("Закрыть") } },
+        )
+    }
     androidx.activity.compose.BackHandler { goUp() }
 
     Scaffold(
@@ -198,6 +274,15 @@ fun FilesScreen(root: File, projectName: String, onBack: () -> Unit, onStartHere
                     if (editing != null) {
                         val ext = editing!!.extension.lowercase()
                         TextButton(onClick = { showSearch = !showSearch }) { Text("Поиск") }
+                        TextButton(onClick = { findDefinitions() }) { Text("Определение") }
+                        if (checker != null) {
+                            TextButton(onClick = {
+                                val f = editing!!
+                                scope.launch {
+                                    checkResult = withContext(Dispatchers.IO) { runCatching { checker(f.name, text) }.getOrElse { "не удалось проверить: ${it.message}" } }
+                                }
+                            }) { Text("Проверить") }
+                        }
                         if (ext == "html" || ext == "htm" || ext == "svg") {
                             TextButton(onClick = {
                                 save()
@@ -219,6 +304,14 @@ fun FilesScreen(root: File, projectName: String, onBack: () -> Unit, onStartHere
                     it,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+            }
+            checkResult?.let {
+                Text(
+                    "Проверка: $it",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (it.startsWith("OK") || it.startsWith("скобки")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
             if (editing != null) {
