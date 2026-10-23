@@ -28,6 +28,7 @@ import com.pocketcode.ui.ChatController
 import com.pocketcode.ui.ChatScreen
 import com.pocketcode.ui.DevicesScreen
 import com.pocketcode.ui.PluginsScreen
+import com.pocketcode.ui.DiagScreen
 import com.pocketcode.ui.PreviewScreen
 import com.pocketcode.ui.FileActions
 import com.pocketcode.ui.FilesScreen
@@ -35,7 +36,7 @@ import com.pocketcode.ui.ProjectsScreen
 import com.pocketcode.ui.SessionsScreen
 import com.pocketcode.ui.SettingsScreen
 
-private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS }
+private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG }
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
@@ -65,6 +66,16 @@ class MainActivity : ComponentActivity() {
 
     /** true — папку выбрали из окна «Новый чат»: после выбора начинаем в ней новый чат. */
     private var pickFolderFresh = false
+
+    private val exportBackup =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+            if (uri != null) controller.exportBackup(uri)
+        }
+
+    private val importBackup =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) controller.importBackup(uri)
+        }
 
     private val exportZip =
         registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
@@ -112,7 +123,7 @@ class MainActivity : ComponentActivity() {
                     }
                     Screen.PROJECTS -> {
                         BackHandler { screen = Screen.CHAT }
-                        ProjectsScreen(vm, actions, onOpenDevices = { screen = Screen.DEVICES }, onOpenPlugins = { screen = Screen.PLUGINS }, onBack = { screen = Screen.CHAT })
+                        ProjectsScreen(vm, actions, onOpenDevices = { screen = Screen.DEVICES }, onOpenPlugins = { screen = Screen.PLUGINS }, onOpenDiag = { screen = Screen.DIAG }, onBack = { screen = Screen.CHAT })
                     }
                     Screen.FILES -> FilesScreen(
                         vm.projectRoot,
@@ -126,6 +137,15 @@ class MainActivity : ComponentActivity() {
                     Screen.DEVICES -> {
                         BackHandler { screen = Screen.PROJECTS }
                         DevicesScreen(vm, onBack = { screen = Screen.PROJECTS })
+                    }
+                    Screen.DIAG -> {
+                        BackHandler { screen = Screen.PROJECTS }
+                        DiagScreen(
+                            vm,
+                            onBack = { screen = Screen.PROJECTS },
+                            onExport = { exportBackup.launch("pocketcode-backup.json") },
+                            onImport = { importBackup.launch(arrayOf("*/*")) },
+                        )
                     }
                     Screen.PLUGINS -> {
                         BackHandler { screen = Screen.PROJECTS }

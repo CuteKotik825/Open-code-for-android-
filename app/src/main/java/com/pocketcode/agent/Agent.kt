@@ -30,6 +30,9 @@ sealed class AgentEvent {
 
     /** Достигнут лимит шагов за один запуск. */
     object StepLimit : AgentEvent()
+
+    /** Расход токенов за один ответ модели. */
+    data class Usage(val input: Int, val output: Int, val cached: Int) : AgentEvent()
 }
 
 private const val MAX_TOOL_OUTPUT = 30_000
@@ -93,6 +96,7 @@ class Agent(
                 break
             }
             injectNotes(pollNotes())
+            compactor.maskOld(history)
             if (compactor.needsCompaction(history)) {
                 try {
                     compactor.compact(history, force = false)?.let { send(AgentEvent.Notice(it)) }
@@ -127,6 +131,9 @@ class Agent(
                 break
             }
             overflowRetried = false
+            if (response.inputTokens + response.outputTokens > 0) {
+                send(AgentEvent.Usage(response.inputTokens, response.outputTokens, response.cachedTokens))
+            }
             history += Message("assistant", response.blocks)
             send(AgentEvent.TextEnd)
 

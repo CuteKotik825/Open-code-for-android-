@@ -40,6 +40,7 @@ class OpenAiClient(
         val body = buildJsonObject {
             put("model", model)
             put("stream", true)
+            if (baseUrl.contains("api.openai.com")) putJsonObject("stream_options") { put("include_usage", true) }
             putJsonArray("messages") {
                 addJsonObject {
                     put("role", "system")
@@ -128,6 +129,9 @@ class OpenAiClient(
         val text = StringBuilder()
         val calls = TreeMap<Int, CallAcc>()
         var finishReason: String? = null
+        var inTok = 0
+        var outTok = 0
+        var cacheTok = 0
 
         Http.postSse(
             baseUrl.trimEnd('/') + "/chat/completions",
@@ -137,6 +141,11 @@ class OpenAiClient(
             val ev = Json.parseToJsonElement(data).jsonObject
             (ev["error"] as? JsonObject)?.let { err ->
                 throw IOException((err["message"] as? JsonPrimitive)?.contentOrNull ?: data.take(400))
+            }
+            (ev["usage"] as? JsonObject)?.let { u ->
+                inTok = (u["prompt_tokens"] as? JsonPrimitive)?.intOrNull ?: inTok
+                outTok = (u["completion_tokens"] as? JsonPrimitive)?.intOrNull ?: outTok
+                cacheTok = ((u["prompt_tokens_details"] as? JsonObject)?.get("cached_tokens") as? JsonPrimitive)?.intOrNull ?: cacheTok
             }
             val choice = (ev["choices"] as? JsonArray)?.firstOrNull() as? JsonObject ?: return@postSse
             (choice["finish_reason"] as? JsonPrimitive)?.contentOrNull?.let { finishReason = it }
@@ -171,6 +180,6 @@ class OpenAiClient(
             }
             blocks += Block.ToolUse(c.id.ifEmpty { "call_$index" }, c.name, input)
         }
-        return LlmResponse(blocks, finishReason)
+        return LlmResponse(blocks, finishReason, inTok, outTok, cacheTok)
     }
 }

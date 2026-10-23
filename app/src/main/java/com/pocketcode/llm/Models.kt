@@ -30,7 +30,13 @@ data class Message(val role: String, val blocks: List<Block>)
 
 data class ToolSpec(val name: String, val description: String, val schema: JsonObject)
 
-data class LlmResponse(val blocks: List<Block>, val stopReason: String?)
+data class LlmResponse(
+    val blocks: List<Block>,
+    val stopReason: String?,
+    val inputTokens: Int = 0,
+    val outputTokens: Int = 0,
+    val cachedTokens: Int = 0,
+)
 
 interface LlmClient {
     /** onTextDelta вызывается из фонового потока по мере поступления текста. */

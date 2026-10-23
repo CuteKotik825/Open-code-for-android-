@@ -46,6 +46,11 @@ data class Settings(
     val permissionRules: String = "",
     val fileHooks: String = "",
     val autoContinue: Boolean = true,
+    /** Цена за 1 млн токенов (USD) для оценки расходов; 0 — не считать. */
+    val priceIn: Float = 0f,
+    val priceOut: Float = 0f,
+    /** Предупреждать и не продолжать автоматически после этого числа токенов за сутки; 0 — без лимита. */
+    val dailyTokenLimit: Int = 0,
 )
 
 const val DEFAULT_PROJECT = "main"
@@ -107,6 +112,9 @@ class SettingsStore(context: Context) {
             permissionRules = prefs.getString("permissionRules", d.permissionRules) ?: "",
             fileHooks = prefs.getString("fileHooks", d.fileHooks) ?: "",
             autoContinue = prefs.getBoolean("autoContinue", d.autoContinue),
+            priceIn = prefs.getFloat("priceIn", d.priceIn),
+            priceOut = prefs.getFloat("priceOut", d.priceOut),
+            dailyTokenLimit = prefs.getInt("dailyTokenLimit", d.dailyTokenLimit),
         )
     }
 
@@ -173,6 +181,19 @@ class SettingsStore(context: Context) {
         prefs.edit().putString("schedules", Json.encodeToString(list)).apply()
     }
 
+    fun loadUsage(): Map<String, List<Long>> = try {
+        Json.decodeFromString<Map<String, List<Long>>>(prefs.getString("usage", null) ?: "{}")
+    } catch (e: Exception) {
+        emptyMap()
+    }
+
+    fun saveUsage(m: Map<String, List<Long>>) {
+        prefs.edit().putString("usage", Json.encodeToString(m)).apply()
+    }
+
+    fun rawGet(key: String): String? = prefs.getString(key, null)
+    fun rawPut(key: String, value: String) { prefs.edit().putString(key, value).apply() }
+
     fun loadDevices(): List<com.pocketcode.tools.Device> = try {
         Json.decodeFromString<List<com.pocketcode.tools.Device>>(prefs.getString("devices", null) ?: "[]")
     } catch (e: Exception) {
@@ -212,6 +233,9 @@ class SettingsStore(context: Context) {
             .putString("permissionRules", s.permissionRules)
             .putString("fileHooks", s.fileHooks)
             .putBoolean("autoContinue", s.autoContinue)
+            .putFloat("priceIn", s.priceIn)
+            .putFloat("priceOut", s.priceOut)
+            .putInt("dailyTokenLimit", s.dailyTokenLimit)
             .apply()
     }
 }

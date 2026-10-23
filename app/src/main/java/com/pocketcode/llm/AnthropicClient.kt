@@ -112,6 +112,9 @@ class AnthropicClient(
 
         val acc = TreeMap<Int, Acc>()
         var stopReason: String? = null
+        var inTok = 0
+        var outTok = 0
+        var cacheTok = 0
 
         Http.postSse(
             baseUrl.trimEnd('/') + "/v1/messages",
@@ -150,7 +153,15 @@ class AnthropicClient(
                             a.json.append(delta["partial_json"]?.jsonPrimitive?.contentOrNull.orEmpty())
                     }
                 }
+                "message_start" -> {
+                    val u = ev["message"]?.jsonObject?.get("usage")?.jsonObject
+                    inTok = (u?.get("input_tokens")?.jsonPrimitive?.intOrNull ?: 0) +
+                        (u?.get("cache_creation_input_tokens")?.jsonPrimitive?.intOrNull ?: 0)
+                    cacheTok = u?.get("cache_read_input_tokens")?.jsonPrimitive?.intOrNull ?: 0
+                    outTok = u?.get("output_tokens")?.jsonPrimitive?.intOrNull ?: 0
+                }
                 "message_delta" -> {
+                    ev["usage"]?.jsonObject?.get("output_tokens")?.jsonPrimitive?.intOrNull?.let { outTok = it }
                     stopReason = ev["delta"]?.jsonObject?.get("stop_reason")?.jsonPrimitive?.contentOrNull
                 }
                 "error" -> {
@@ -175,6 +186,6 @@ class AnthropicClient(
                 }
             }
         }
-        return LlmResponse(blocks, stopReason)
+        return LlmResponse(blocks, stopReason, inTok, outTok, cacheTok)
     }
 }

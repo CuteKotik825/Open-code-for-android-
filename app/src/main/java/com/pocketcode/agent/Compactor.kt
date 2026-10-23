@@ -21,6 +21,23 @@ class Compactor(private val llm: LlmClient, private val limitTokens: Int) {
         estimateTokens(history) + OVERHEAD_TOKENS > (limitTokens * TRIGGER_RATIO).toInt()
 
     /**
+     * Урезает длинные выводы инструментов старше [keepRecent] сообщений на каждом шаге, не дожидаясь заполнения контекста:
+     * агенту редко нужен старый вывод целиком, а оплачивается он при каждом запросе.
+     */
+    fun maskOld(history: MutableList<Message>, keepRecent: Int = 12, over: Int = 2500, keep: Int = 500) {
+        val until = history.size - keepRecent
+        for (i in 0 until until) {
+            val m = history[i]
+            if (m.blocks.none { it is Block.ToolResult && it.content.length > over }) continue
+            history[i] = m.copy(blocks = m.blocks.map { b ->
+                if (b is Block.ToolResult && b.content.length > over) {
+                    b.copy(content = b.content.take(keep) + "\n...[старый вывод сокращён, вызови инструмент снова, если нужен целиком]")
+                } else b
+            })
+        }
+    }
+
+    /**
      * Сжимает [history] на месте. Возвращает текст для чата или null, если сжимать нечего.
      * force=true — после ошибки переполнения: сразу делаем сводку.
      */

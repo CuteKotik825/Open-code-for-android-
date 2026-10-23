@@ -20,6 +20,9 @@ import com.pocketcode.Settings
 import com.pocketcode.SettingsStore
 import com.pocketcode.agent.Agent
 import com.pocketcode.llm.Block
+import com.pocketcode.AppLog
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.withLock
 import com.pocketcode.tools.GitHubTool
@@ -1187,6 +1190,256 @@ class ChatController(private val app: Application) {
     var previewUrl by mutableStateOf<String?>(null)
     var lastPreview by mutableStateOf<String?>(null)
 
+    // ---------- самопроверка, отчёт, статистика, резервная копия ----------
+
+    class CheckResult(val name: String, val ok: Boolean, val detail: String)
+
+    var checks by mutableStateOf<List<CheckResult>>(emptyList())
+        private set
+    var checking by mutableStateOf(false)
+        private set
+
+    private fun makeLlm(s: Settings): LlmClient = when (s.provider) {
+        Provider.ANTHROPIC -> AnthropicClient(s.baseUrl, s.apiKey, s.model, s.promptCaching)
+        Provider.OPENAI -> OpenAiClient(s.baseUrl, s.apiKey, s.model, s.promptCaching)
+    }
+
+    fun runSelfCheck() {
+        if (checking) return
+        checking = true
+        checks = emptyList()
+        scope.launch {
+            val out = mutableListOf<CheckResult>()
+            suspend fun step(name: String, block: suspend () -> String) {
+                val r = try {
+                    CheckResult(name, true, kotlinx.coroutines.withTimeout(60_000) { block() })
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    CheckResult(name, false, e.message ?: e.toString())
+                }
+                out += r
+                checks = out.toList()
+                if (!r.ok) AppLog.log("CHECK", "${r.name}: ${r.detail}")
+            }
+            val s = settings
+            step("API-ключ и профиль") {
+                require(s.apiKey.isNotBlank()) { "ключ не указан" }
+                "${s.provider.label}, ${s.model}"
+            }
+            step("Связь с моделью") {
+                require(s.apiKey.isNotBlank()) { "нужен ключ" }
+                val r = makeLlm(s).complete("Reply with the single word: ok", listOf(Message("user", listOf(Block.Text("ping")))), emptyList()) { }
+                val t = r.blocks.filterIsInstance<Block.Text>().joinToString(" ") { it.text }.trim()
+                "ответ: ${t.take(40).ifEmpty { "(пусто)" }}" + if (r.inputTokens > 0) ", токенов вход/выход ${r.inputTokens}/${r.outputTokens}" else ""
+            }
+            step("Файлы проекта") {
+                withContext(Dispatchers.IO) {
+                    val f = File(workspace.root, ".pocketcode_selfcheck.tmp")
+                    f.writeText("ok")
+                    val back = f.readText()
+                    f.delete()
+                    require(back == "ok") { "запись не совпала с чтением" }
+                    workspace.root.absolutePath
+                }
+            }
+            step("Android sh") { androidShell.run("echo ok; uname -m", workspace.root, 20).lines().filter { it.isNotBlank() }.take(2).joinToString(", ") }
+            step("Python") {
+                python.run("import sys; print(sys.version.split()[0])", null, emptyList(), workspace.root.canonicalPath, 30).lines().first { it.isNotBlank() }
+            }
+            step("Git (JGit)") {
+                withContext(Dispatchers.IO) {
+                    val d = File(app.cacheDir, "selfcheck-git")
+                    d.deleteRecursively()
+                    org.eclipse.jgit.api.Git.init().setDirectory(d).call().close()
+                    val ok = File(d, ".git").isDirectory
+                    d.deleteRecursively()
+                    require(ok) { "репозиторий не создался" }
+                    "init работает"
+                }
+            }
+            step("Интернет и web_fetch") { WebFetchTool().run(buildJsonObject { put("url", "https://example.com") }).lines().first { it.isNotBlank() }.take(60) }
+            if (linuxEnv.isInstalled()) {
+                step("Linux (proot)") {
+                    linuxShell.run("uname -m; which python3 git node adb 2>&1 | tr '\\n' ' '", workspace.root, 40).lines().filter { it.isNotBlank() && !it.startsWith("[") }.joinToString(" | ")
+                }
+            } else {
+                out += CheckResult("Linux (proot)", true, "не установлен (необязательно)")
+                checks = out.toList()
+            }
+            if (rootEnabled) step("Root (su)") { rootShell.check().lines().first { it.isNotBlank() }.take(80) }
+            checking = false
+            AppLog.log("CHECK", "самопроверка: ${out.count { it.ok }}/${out.size} успешно")
+        }
+    }
+
+    fun buildReport(): String {
+        val s = settings
+        val ver = runCatching { app.packageManager.getPackageInfo(app.packageName, 0).versionName }.getOrNull() ?: "?"
+        return buildString {
+            appendLine("PocketCode $ver")
+            appendLine("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), ${Build.MANUFACTURER} ${Build.MODEL}, ${Build.SUPPORTED_ABIS.firstOrNull()}")
+            appendLine("Провайдер: ${s.provider}, модель: ${s.model}, URL: ${s.baseUrl}")
+            appendLine("Контекст: ${s.contextTokens}, шагов: ${s.maxSteps}, автопродолжение: ${s.autoContinue}, кэш: ${s.promptCaching}, без подтверждений: ${s.autoApprove}")
+            appendLine("Linux: установлен=${linuxEnv.isInstalled()}, включён=$linuxEnabled; root=$rootEnabled; MCP=${mcpServers.size}; проект: $currentProject")
+            appendLine("Расход сегодня: ${usageToday().let { "вход ${it[0]}, выход ${it[1]}, кэш ${it[2]}, запросов ${it[3]}" }}")
+            if (checks.isNotEmpty()) {
+                appendLine()
+                appendLine("Самопроверка:")
+                checks.forEach { appendLine("${if (it.ok) "OK " else "ОШИБКА "}${it.name}: ${it.detail}") }
+            }
+            appendLine()
+            appendLine("Журнал (последние события):")
+            append(AppLog.tail(60))
+        }
+    }
+
+    // --- расход токенов ---
+    private val usage = settingsStore.loadUsage().toMutableMap()
+    var usageVersion by mutableIntStateOf(0)
+        private set
+    private var limitWarned = false
+
+    private fun dayKey(): String = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+
+    private fun recordUsage(input: Int, output: Int, cached: Int) {
+        val key = dayKey() + "|" + currentProject
+        val old = usage[key] ?: listOf(0L, 0L, 0L, 0L)
+        usage[key] = listOf(old[0] + input, old[1] + output, old[2] + cached, old[3] + 1)
+        if (usage.size > 400) usage.keys.sorted().take(usage.size - 300).forEach { usage.remove(it) }
+        settingsStore.saveUsage(usage)
+        usageVersion++
+        val limit = settings.dailyTokenLimit
+        if (limit > 0 && !limitWarned && usageToday().let { it[0] + it[1] } > limit) {
+            limitWarned = true
+            items += UiItem.Notice("Суточный лимит токенов ($limit) превышен: автопродолжение и очередь приостановлены.")
+        }
+    }
+
+    private fun overDailyLimit(): Boolean =
+        settings.dailyTokenLimit > 0 && usageToday().let { it[0] + it[1] } > settings.dailyTokenLimit
+
+    fun usageToday(): LongArray {
+        val day = dayKey()
+        val sum = LongArray(4)
+        usage.forEach { (k, v) -> if (k.startsWith("$day|")) for (i in 0..3) sum[i] += v[i] }
+        return sum
+    }
+
+    fun usageTotal(): LongArray {
+        val sum = LongArray(4)
+        usage.values.forEach { v -> for (i in 0..3) sum[i] += v[i] }
+        return sum
+    }
+
+    fun usageByProject(): List<Pair<String, Long>> =
+        usage.entries.groupBy({ it.key.substringAfter('|') }, { it.value[0] + it.value[1] })
+            .map { (k, v) -> k to v.sum() }.sortedByDescending { it.second }
+
+    fun costOf(input: Long, output: Long): Double =
+        (input * settings.priceIn + output * settings.priceOut) / 1_000_000.0
+
+    fun resetUsage() {
+        usage.clear()
+        settingsStore.saveUsage(usage)
+        usageVersion++
+        limitWarned = false
+    }
+
+    // --- резервная копия настроек ---
+    var backupMessage by mutableStateOf<String?>(null)
+
+    fun exportBackup(uri: Uri) {
+        scope.launch {
+            val r = withContext(Dispatchers.IO) {
+                runCatching {
+                    val j = kotlinx.serialization.json.Json { prettyPrint = true }
+                    val s = settings
+                    val files = kotlinx.serialization.json.buildJsonObject {
+                        extensions.globalDir.walkTopDown().filter { it.isFile && it.length() < 200_000 }.forEach {
+                            put(it.relativeTo(extensions.globalDir).path, it.readText())
+                        }
+                    }
+                    val obj = kotlinx.serialization.json.buildJsonObject {
+                        put("app", "pocketcode-backup"); put("version", 1)
+                        put("profiles", j.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(Profile.serializer()), profiles))
+                        put("activeProfile", activeProfileId)
+                        put("settings", kotlinx.serialization.json.buildJsonObject {
+                            put("githubToken", s.githubToken); put("gitName", s.gitName); put("gitEmail", s.gitEmail)
+                            put("autoApprove", s.autoApprove); put("contextTokens", s.contextTokens); put("freshOnStart", s.freshOnStart)
+                            put("smartApprove", s.smartApprove); put("allowRules", s.allowRules); put("promptCaching", s.promptCaching)
+                            put("maxSteps", s.maxSteps); put("permissionRules", s.permissionRules); put("fileHooks", s.fileHooks)
+                            put("autoContinue", s.autoContinue); put("priceIn", s.priceIn); put("priceOut", s.priceOut)
+                            put("dailyTokenLimit", s.dailyTokenLimit)
+                        })
+                        put("mcp", j.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(McpServer.serializer()), mcpServers))
+                        put("schedules", j.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(com.pocketcode.Schedule.serializer()), schedules))
+                        put("devices", j.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(Device.serializer()), devices))
+                        put("globalFiles", files)
+                    }
+                    app.contentResolver.openOutputStream(uri)!!.use { it.write(j.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), obj).toByteArray()) }
+                }
+            }
+            backupMessage = r.exceptionOrNull()?.let { "Не удалось сохранить: ${it.message}" }
+                ?: "Копия сохранена. В ней лежат API-ключи и токены, храни файл в надёжном месте."
+        }
+    }
+
+    fun importBackup(uri: Uri) {
+        if (running) { backupMessage = "Дождись окончания работы агента."; return }
+        scope.launch {
+            val r = withContext(Dispatchers.IO) {
+                runCatching {
+                    val text = app.contentResolver.openInputStream(uri)!!.use { it.readBytes().decodeToString() }
+                    val j = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                    val o = j.parseToJsonElement(text) as kotlinx.serialization.json.JsonObject
+                    require((o["app"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "pocketcode-backup") { "это не копия PocketCode" }
+                    o
+                }
+            }
+            val o = r.getOrElse { backupMessage = "Не удалось прочитать: ${it.message}"; return@launch }
+            runCatching {
+                val j = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                fun str(m: kotlinx.serialization.json.JsonObject, k: String) = (m[k] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                val st = o["settings"] as? kotlinx.serialization.json.JsonObject
+                val newProfiles = o["profiles"]?.let { j.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(Profile.serializer()), it) } ?: profiles
+                val activeId = str(o, "activeProfile")?.takeIf { id -> newProfiles.any { it.id == id } } ?: newProfiles.first().id
+                val a = newProfiles.first { it.id == activeId }
+                var ns = settings.copy(provider = a.provider, baseUrl = a.baseUrl, model = a.model, apiKey = a.apiKey)
+                if (st != null) {
+                    ns = ns.copy(
+                        githubToken = str(st, "githubToken") ?: ns.githubToken, gitName = str(st, "gitName") ?: ns.gitName,
+                        gitEmail = str(st, "gitEmail") ?: ns.gitEmail, autoApprove = str(st, "autoApprove")?.toBoolean() ?: ns.autoApprove,
+                        contextTokens = str(st, "contextTokens")?.toIntOrNull() ?: ns.contextTokens,
+                        freshOnStart = str(st, "freshOnStart")?.toBoolean() ?: ns.freshOnStart,
+                        smartApprove = str(st, "smartApprove")?.toBoolean() ?: ns.smartApprove,
+                        allowRules = str(st, "allowRules") ?: ns.allowRules, promptCaching = str(st, "promptCaching")?.toBoolean() ?: ns.promptCaching,
+                        maxSteps = str(st, "maxSteps")?.toIntOrNull() ?: ns.maxSteps, permissionRules = str(st, "permissionRules") ?: ns.permissionRules,
+                        fileHooks = str(st, "fileHooks") ?: ns.fileHooks, autoContinue = str(st, "autoContinue")?.toBoolean() ?: ns.autoContinue,
+                        priceIn = str(st, "priceIn")?.toFloatOrNull() ?: ns.priceIn, priceOut = str(st, "priceOut")?.toFloatOrNull() ?: ns.priceOut,
+                        dailyTokenLimit = str(st, "dailyTokenLimit")?.toIntOrNull() ?: ns.dailyTokenLimit,
+                    )
+                }
+                saveSettings(ns, newProfiles, activeId)
+                o["mcp"]?.let { mcpServers = j.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(McpServer.serializer()), it); settingsStore.saveMcp(mcpServers) }
+                o["schedules"]?.let {
+                    schedules = j.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(com.pocketcode.Schedule.serializer()), it)
+                    settingsStore.saveSchedules(schedules); com.pocketcode.Scheduler.apply(app, schedules)
+                }
+                o["devices"]?.let { devices = j.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(Device.serializer()), it); settingsStore.saveDevices(devices) }
+                (o["globalFiles"] as? kotlinx.serialization.json.JsonObject)?.forEach { (rel, v) ->
+                    val f = File(extensions.globalDir, rel)
+                    if (f.canonicalPath.startsWith(extensions.globalDir.canonicalPath)) {
+                        f.parentFile?.mkdirs(); f.writeText((v as kotlinx.serialization.json.JsonPrimitive).content)
+                    }
+                }
+                agent = null
+                refreshExtensions()
+            }.onSuccess { backupMessage = "Настройки восстановлены." }
+                .onFailure { backupMessage = "Не удалось применить: ${it.message}" }
+        }
+    }
+
     private var limitHit = false
     private var autoChain = 0
 
@@ -1262,11 +1515,11 @@ class ChatController(private val app: Application) {
                 if (myRun == runId) {
                     // Нормальное завершение; при отмене всё уже убрал cancelRun()
                     finishRun()
-                    if (limitHit && !lastRunFailed && settings.autoContinue && autoChain < 50) {
+                    if (limitHit && !lastRunFailed && settings.autoContinue && autoChain < 50 && !overDailyLimit()) {
                         send("Продолжай работу над задачей, не останавливайся, пока она не выполнена.", auto = true)
                         return@launch
                     }
-                    val next = if (!lastRunFailed && queue.isNotEmpty()) queue.removeAt(0).also { saveQueue() } else null
+                    val next = if (!lastRunFailed && !overDailyLimit() && queue.isNotEmpty()) queue.removeAt(0).also { saveQueue() } else null
                     if (lastRunFailed && queue.isNotEmpty()) {
                         items += UiItem.Notice("Очередь (${queue.size}) приостановлена из-за ошибки. Открой её кнопкой «Очередь» и запусти.")
                     }
@@ -1350,9 +1603,11 @@ class ChatController(private val app: Application) {
                     val old = items[idx] as UiItem.Tool
                     items[idx] = old.copy(output = event.output, isError = event.isError)
                 }
+                if (event.isError) AppLog.log("TOOLERR", "${event.name}: ${event.output.take(300)}")
                 Notifier.updateWorking(app, "Агент работает…")
                 persist()
             }
+            is AgentEvent.Usage -> recordUsage(event.input, event.output, event.cached)
             is AgentEvent.StepLimit -> {
                 streamingIndex = null
                 limitHit = true
@@ -1360,6 +1615,7 @@ class ChatController(private val app: Application) {
                 persist()
             }
             is AgentEvent.Error -> {
+                AppLog.log("ERROR", event.message)
                 lastRunFailed = true
                 streamingIndex = null
                 items += UiItem.Error(event.message)
