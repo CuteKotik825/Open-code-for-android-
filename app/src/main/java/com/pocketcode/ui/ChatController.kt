@@ -20,6 +20,7 @@ import com.pocketcode.Settings
 import com.pocketcode.SettingsStore
 import com.pocketcode.agent.Agent
 import com.pocketcode.llm.Block
+import com.pocketcode.tools.NotesTool
 import com.pocketcode.tools.TestTool
 import com.pocketcode.tools.Shell
 import com.pocketcode.AppLog
@@ -1201,9 +1202,14 @@ class ChatController(private val app: Application) {
     var checking by mutableStateOf(false)
         private set
 
-    private fun makeLlm(s: Settings): LlmClient = when (s.provider) {
-        Provider.ANTHROPIC -> AnthropicClient(s.baseUrl, s.apiKey, s.model, s.promptCaching)
-        Provider.OPENAI -> OpenAiClient(s.baseUrl, s.apiKey, s.model, s.promptCaching)
+    private fun makeLlm(s: Settings, model: String = s.model): LlmClient = when (s.provider) {
+        Provider.ANTHROPIC -> AnthropicClient(s.baseUrl, s.apiKey, model, s.promptCaching)
+        Provider.OPENAI -> OpenAiClient(s.baseUrl, s.apiKey, model, s.promptCaching)
+    }
+
+    private fun makeFallback(s: Settings): LlmClient? {
+        val p = profiles.firstOrNull { it.id == s.fallbackProfileId && it.id != activeProfileId } ?: return null
+        return makeLlm(s.copy(provider = p.provider, baseUrl = p.baseUrl, apiKey = p.apiKey), p.model)
     }
 
     fun runSelfCheck() {
@@ -1696,8 +1702,9 @@ class ChatController(private val app: Application) {
             PresentPlanTool { planMode = false },
             TodoTool { todos = it },
         )
+        val helper: LlmClient? = s.helperModel.trim().takeIf { it.isNotEmpty() }?.let { makeLlm(s, it) }
         val explorer = SubagentTool(
-            llm,
+            helper ?: llm,
             listOf(ReadFileTool(workspace), ListDirTool(workspace), GrepTool(workspace), WebSearchTool(), WebFetchTool()),
             s.contextTokens,
         )
@@ -1707,6 +1714,7 @@ class ChatController(private val app: Application) {
             CodeSearchTool(workspace),
             DiagnosticsTool(workspace, python, shell) { changes.map { it.path } },
             TestTool(workspace, shell, python),
+            NotesTool(extensions),
             GitHubTool(workspace) { settings.githubToken },
         )
         val tools = baseTools + mcpTools + planTools + devTools + explorer + listOfNotNull(
@@ -1720,7 +1728,10 @@ class ChatController(private val app: Application) {
             workspace.root.absolutePath, shell.info, linuxActive,
             adbDevices = if (linuxActive) devices.map { "${it.label} (${it.address})" } else null,
             root = rootEnabled,
-            instructions = runCatching { extensions.projectInstructions() }.getOrNull(),
+            instructions = listOfNotNull(
+                runCatching { extensions.projectInstructions() }.getOrNull(),
+                runCatching { extensions.projectNotes() }.getOrNull()?.let { "[Заметки проекта, записаны агентом ранее]\n$it" },
+            ).joinToString("\n\n").ifEmpty { null },
             skills = skills,
         )
         val workerTools: List<Tool> = baseTools + devTools.filter { it.name != "preview" }
@@ -1759,6 +1770,8 @@ class ChatController(private val app: Application) {
             contextLimit = s.contextTokens,
             maxSteps = s.maxSteps,
             hooks = agentHooks,
+            fallbackLlm = makeFallback(s),
+            helperLlm = helper,
             approve = ::requestApproval,
             history = history,
             pollNotes = { generateSequence { notes.poll() }.toList() },

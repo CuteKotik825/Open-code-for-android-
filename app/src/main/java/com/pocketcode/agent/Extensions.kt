@@ -103,6 +103,20 @@ class Extensions(
         else if (args.isEmpty()) body else "$body\n\n$args"
     }
 
+    /** Заметки агента о проекте (.pocketcode/NOTES.md): решения, договорённости, подводные камни. */
+    fun projectNotes(): String? {
+        val f = File(projectRoot(), ".pocketcode/NOTES.md")
+        if (!f.isFile) return null
+        return runCatching { f.readText().trim() }.getOrNull()?.takeIf { it.isNotEmpty() }?.takeLast(4000)
+    }
+
+    fun addNote(note: String) {
+        val f = File(projectRoot(), ".pocketcode/NOTES.md")
+        f.parentFile?.mkdirs()
+        val date = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        f.appendText("- ($date) ${note.trim().replace('\n', ' ')}\n")
+    }
+
     /** AGENTS.md (или CLAUDE.md) из корня проекта. */
     fun projectInstructions(): String? {
         val root = projectRoot()

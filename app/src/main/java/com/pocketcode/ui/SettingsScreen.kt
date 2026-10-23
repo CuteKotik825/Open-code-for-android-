@@ -61,6 +61,8 @@ fun SettingsScreen(
     var maxSteps by remember { mutableStateOf(initial.maxSteps.toString()) }
     var permissionRules by remember { mutableStateOf(initial.permissionRules) }
     var fileHooks by remember { mutableStateOf(initial.fileHooks) }
+    var helperModel by remember { mutableStateOf(initial.helperModel) }
+    var fallbackId by remember { mutableStateOf(initial.fallbackProfileId) }
     var autoContinue by remember { mutableStateOf(initial.autoContinue) }
 
     // Профили ключей: форма ниже всегда редактирует активный профиль
@@ -220,6 +222,29 @@ fun SettingsScreen(
                     )
                 }
                 Switch(checked = promptCaching, onCheckedChange = { promptCaching = it })
+            }
+            OutlinedTextField(
+                value = helperModel,
+                onValueChange = { helperModel = it },
+                label = { Text("Модель-помощник (необязательно)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "Дешёвая модель того же провайдера и ключа (например claude-haiku-5-5 или gpt-4o-mini). Ей поручаются сводки контекста и подагент task, " +
+                    "а основная модель делает всю остальную работу. Пусто — везде основная.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text("Резервный профиль", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Если у основной модели кончилась квота, превышен лимит запросов или ключ не принят, агент сам перейдёт на выбранный профиль и продолжит.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.FilterChip(selected = fallbackId.isEmpty(), onClick = { fallbackId = "" }, label = { Text("Нет") })
+                profiles.filter { it.id != activeId }.forEach { p ->
+                    androidx.compose.material3.FilterChip(selected = fallbackId == p.id, onClick = { fallbackId = p.id }, label = { Text(p.label) })
+                }
             }
             OutlinedTextField(
                 value = permissionRules,
@@ -386,6 +411,8 @@ fun SettingsScreen(
                             promptCaching = promptCaching,
                             maxSteps = (maxSteps.toIntOrNull() ?: 60).coerceIn(0, 1000),
                             autoContinue = autoContinue,
+                            helperModel = helperModel,
+                            fallbackProfileId = fallbackId,
                             permissionRules = permissionRules,
                             fileHooks = fileHooks,
                         ),

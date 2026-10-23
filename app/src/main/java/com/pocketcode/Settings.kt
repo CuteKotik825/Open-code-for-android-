@@ -51,6 +51,10 @@ data class Settings(
     val priceOut: Float = 0f,
     /** Предупреждать и не продолжать автоматически после этого числа токенов за сутки; 0 — без лимита. */
     val dailyTokenLimit: Int = 0,
+    /** Дешёвая модель того же провайдера для сводок и подагента; пусто — основная. */
+    val helperModel: String = "",
+    /** Резервный профиль на случай, если у основного кончилась квота. */
+    val fallbackProfileId: String = "",
 )
 
 const val DEFAULT_PROJECT = "main"
@@ -115,6 +119,8 @@ class SettingsStore(context: Context) {
             priceIn = prefs.getFloat("priceIn", d.priceIn),
             priceOut = prefs.getFloat("priceOut", d.priceOut),
             dailyTokenLimit = prefs.getInt("dailyTokenLimit", d.dailyTokenLimit),
+            helperModel = prefs.getString("helperModel", d.helperModel) ?: "",
+            fallbackProfileId = prefs.getString("fallbackProfileId", d.fallbackProfileId) ?: "",
         )
     }
 
@@ -236,6 +242,8 @@ class SettingsStore(context: Context) {
             .putFloat("priceIn", s.priceIn)
             .putFloat("priceOut", s.priceOut)
             .putInt("dailyTokenLimit", s.dailyTokenLimit)
+            .putString("helperModel", s.helperModel.trim())
+            .putString("fallbackProfileId", s.fallbackProfileId)
             .apply()
     }
 }

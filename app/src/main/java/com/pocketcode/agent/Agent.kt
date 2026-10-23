@@ -38,7 +38,7 @@ sealed class AgentEvent {
 private const val MAX_TOOL_OUTPUT = 30_000
 
 class Agent(
-    private val llm: LlmClient,
+    llm: LlmClient,
     private val tools: List<Tool>,
     private val system: String,
     private val autoApprove: Boolean,
@@ -53,8 +53,21 @@ class Agent(
     /** Шагов за запуск; 0 — без лимита. */
     private val maxSteps: Int = 0,
     private val hooks: AgentHooks = AgentHooks.NONE,
+    /** Резервная модель: включается, если у основной кончилась квота, лимит запросов или ключ не принят. */
+    private val fallbackLlm: LlmClient? = null,
+    /** Дешёвая модель для сводок контекста. */
+    helperLlm: LlmClient? = null,
 ) {
-    private val compactor = Compactor(llm, contextLimit)
+    private var llm: LlmClient = llm
+    private var usedFallback = false
+
+    private fun looksLikeQuota(msg: String?): Boolean {
+        val m = msg?.lowercase() ?: return false
+        return listOf("429", "402", "401", "403", "529", "rate limit", "rate_limit", "quota", "insufficient", "too many requests",
+            "overloaded", "credit", "billing", "invalid api key", "incorrect api key", "unauthorized").any { m.contains(it) }
+    }
+
+    private val compactor = Compactor(helperLlm ?: llm, contextLimit)
     private val byName = tools.associateBy { it.name }
     private val specs = tools.map { ToolSpec(it.name, it.description, it.schema) }
 
@@ -112,6 +125,12 @@ class Agent(
                 throw e
             } catch (e: Exception) {
                 send(AgentEvent.TextEnd)
+                if (!usedFallback && fallbackLlm != null && looksLikeQuota(e.message)) {
+                    usedFallback = true
+                    llm = fallbackLlm
+                    send(AgentEvent.Notice("Основной профиль не сработал (${(e.message ?: "").take(100)}). Перехожу на резервный."))
+                    continue
+                }
                 if (!overflowRetried && Compactor.looksLikeOverflow(e.message)) {
                     // Модель отказалась из-за размера контекста: сжимаем принудительно и повторяем
                     overflowRetried = true
@@ -214,6 +233,7 @@ ${if (root) "- root runs a command as root on THIS phone, outside the app sandbo
 - code_search finds relevant files/definitions by meaning; diagnostics checks syntax of files you edited (run it after edits).
 - github works with the repo's pull requests, issues and CI checks (needs the token from settings). spawn starts parallel workers with their own context for independent parts of a big task (different files); collect them with worker_result before you finish.
 - run_tests runs the project's tests and returns a compact failure summary. spawn with isolated=true gives a worker its own copy of the project (merged back afterwards).
+- remember saves a short durable note about the project (decisions, how to run things, gotchas) that you will see at the start of future chats.
 - todo keeps a visible checklist; use it for work with 3+ steps and update it as you go.
 - In plan mode (the user message says so) you may only read and search; finish by calling present_plan and wait for approval.
 - task starts a helper agent with its own clean context that only reads (files, grep, web) and returns a short report. Use it for broad code exploration or research so your own context stays small; give it a self-contained prompt.
