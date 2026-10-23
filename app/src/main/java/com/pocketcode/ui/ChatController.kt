@@ -1452,6 +1452,9 @@ class ChatController(private val app: Application) {
         }
     }
 
+    /** Текст, пришедший из «Поделиться» в другом приложении: попадёт в поле ввода. */
+    var incomingText by mutableStateOf<String?>(null)
+
     private var limitHit = false
     private var autoChain = 0
 
@@ -1629,6 +1632,7 @@ class ChatController(private val app: Application) {
             }
             is AgentEvent.Error -> {
                 AppLog.log("ERROR", event.message)
+                if (!appVisible) Notifier.alert(app, "Агент остановился: ошибка", event.message.take(200))
                 lastRunFailed = true
                 streamingIndex = null
                 items += UiItem.Error(event.message)
@@ -1704,7 +1708,12 @@ class ChatController(private val app: Application) {
         val mcpTools: List<Tool> = mcpServers.filter { it.enabled }.flatMap { s -> s.tools.map { McpTool(s, it) } }
         val planTools: List<Tool> = listOf(
             PresentPlanTool { planMode = false },
-            TodoTool { todos = it },
+            TodoTool { list ->
+                todos = list
+                if (list.isNotEmpty() && list.all { it.startsWith("[x]", true) } && !appVisible) {
+                    Notifier.alert(app, "Список задач выполнен", "Готово пунктов: ${list.size}")
+                }
+            },
         )
         val helper: LlmClient? = s.helperModel.trim().takeIf { it.isNotEmpty() }?.let { makeLlm(s, it) }
         val explorer = SubagentTool(

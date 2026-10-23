@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new_task"
+        android:enabled="true"
+        android:shortcutShortLabel="@string/shortcut_new_task">
+        <intent
+            android:action="com.pocketcode.NEW_TASK"
+            android:targetClass="com.pocketcode.MainActivity"
+            android:targetPackage="com.pocketcode" />
+    </shortcut>
+</shortcuts>

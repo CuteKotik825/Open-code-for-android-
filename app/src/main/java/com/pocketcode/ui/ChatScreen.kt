@@ -79,6 +79,19 @@ fun ChatScreen(
         androidx.activity.result.contract.ActivityResultContracts.GetContent(),
     ) { uri -> if (uri != null) vm.attachImage(uri) }
     val listState = rememberLazyListState()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val voice = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+    ) { res ->
+        val spoken = res.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+        if (!spoken.isNullOrBlank()) input = if (input.isBlank()) spoken else input.trimEnd() + " " + spoken
+    }
+    LaunchedEffect(vm.incomingText) {
+        vm.incomingText?.let {
+            input = if (input.isBlank()) it else input.trimEnd() + "\n" + it
+            vm.incomingText = null
+        }
+    }
 
     // Автопрокрутка вниз только если пользователь и так внизу; читая историю выше, он остаётся на месте
     var stick by remember { mutableStateOf(true) }
@@ -312,7 +325,19 @@ fun ChatScreen(
                     .padding(8.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                TextButton(onClick = { pickImage.launch("image/*") }, enabled = !vm.running) { Text("🖼") }
+                TextButton(onClick = { pickImage.launch("image/*") }, enabled = !vm.running, contentPadding = PaddingValues(horizontal = 4.dp)) { Text("🖼") }
+                TextButton(
+                    onClick = {
+                        val i = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                            putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                            putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Говори задачу")
+                        }
+                        try { voice.launch(i) } catch (e: Exception) {
+                            android.widget.Toast.makeText(ctx, "На телефоне нет сервиса распознавания речи", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 4.dp),
+                ) { Text("🎤") }
                 OutlinedTextField(
                     value = input,
                     onValueChange = { input = it },

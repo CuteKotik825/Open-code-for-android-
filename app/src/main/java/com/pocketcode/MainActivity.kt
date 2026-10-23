@@ -7,6 +7,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings as AndroidSettings
+import androidx.compose.runtime.key
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -84,6 +87,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleIntent(intent)
         requestNotificationPermission()
         val vm = controller
         val actions = FileActions(
@@ -97,20 +101,43 @@ class MainActivity : ComponentActivity() {
             AppTheme {
                 var screen by remember { mutableStateOf(Screen.CHAT) }
                 val pv = vm.previewUrl
+                val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 840
                 if (pv != null) {
                     PreviewScreen(pv, "Превью", onBack = { vm.previewUrl = null })
                 } else when (screen) {
-                    Screen.CHAT -> ChatScreen(
-                        vm,
-                        onOpenSettings = { screen = Screen.SETTINGS },
-                        onOpenSessions = { screen = Screen.SESSIONS },
-                        onOpenProjects = { screen = Screen.PROJECTS },
-                        onOpenFiles = { screen = Screen.FILES },
-                        onPickFolder = {
-                            pickFolderFresh = true
-                            pickFolderAsProject.launch(null)
-                        },
-                    )
+                    Screen.CHAT -> {
+                        val chat: @Composable () -> Unit = {
+                            ChatScreen(
+                                vm,
+                                onOpenSettings = { screen = Screen.SETTINGS },
+                                onOpenSessions = { screen = Screen.SESSIONS },
+                                onOpenProjects = { screen = Screen.PROJECTS },
+                                onOpenFiles = { screen = Screen.FILES },
+                                onPickFolder = {
+                                    pickFolderFresh = true
+                                    pickFolderAsProject.launch(null)
+                                },
+                            )
+                        }
+                        if (wide) {
+                            // Планшет и ландшафт: чат слева, файлы проекта справа
+                            androidx.compose.foundation.layout.Row(Modifier.fillMaxSize()) {
+                                androidx.compose.foundation.layout.Box(Modifier.weight(1f)) { chat() }
+                                androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
+                                    key(vm.projectRoot.absolutePath) {
+                                        FilesScreen(
+                                            vm.projectRoot,
+                                            vm.currentProject,
+                                            onBack = { },
+                                            onStartHere = { dir -> vm.openFolderAsProject(dir) },
+                                            checker = { name, text -> vm.checkText(name, text) },
+                                            refreshKey = vm.items.size,
+                                        )
+                                    }
+                                }
+                            }
+                        } else chat()
+                    }
                     Screen.SETTINGS -> {
                         BackHandler { screen = Screen.CHAT }
                         SettingsScreen(
@@ -159,6 +186,30 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        intent ?: return
+        when (intent.action) {
+            Intent.ACTION_SEND -> {
+                val type = intent.type.orEmpty()
+                if (type.startsWith("image/")) {
+                    @Suppress("DEPRECATION")
+                    (intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM))?.let { controller.attachImage(it) }
+                }
+                intent.getStringExtra(Intent.EXTRA_TEXT)?.let { controller.incomingText = it }
+            }
+            "com.pocketcode.NEW_TASK" -> if (!controller.running) {
+                controller.newChat()
+            }
+        }
+        intent.action = null
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
     }
 
     override fun onStart() {

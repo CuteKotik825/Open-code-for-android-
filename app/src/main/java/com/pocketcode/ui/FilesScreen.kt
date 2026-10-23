@@ -80,6 +80,8 @@ fun FilesScreen(
     onStartHere: (File) -> Unit,
     /** Проверка синтаксиса текста: (имя файла, текст) -> результат. */
     checker: (suspend (String, String) -> String)? = null,
+    /** Меняется снаружи, чтобы список файлов обновился (например, пока агент работает). */
+    refreshKey: Int = 0,
 ) {
     val scope = rememberCoroutineScope()
     var dir by remember { mutableStateOf(root) }
@@ -110,7 +112,7 @@ fun FilesScreen(
     var newKind by remember { mutableStateOf<String?>(null) } // "file" | "dir"
     var newName by remember { mutableStateOf("") }
 
-    LaunchedEffect(dir, tick) {
+    LaunchedEffect(dir, tick, refreshKey) {
         entries = withContext(Dispatchers.IO) {
             (dir.listFiles() ?: emptyArray())
                 .sortedWith(compareBy<File>({ !it.isDirectory }, { it.name.lowercase() }))
