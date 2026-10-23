@@ -61,6 +61,7 @@ fun SettingsScreen(
     var maxSteps by remember { mutableStateOf(initial.maxSteps.toString()) }
     var permissionRules by remember { mutableStateOf(initial.permissionRules) }
     var fileHooks by remember { mutableStateOf(initial.fileHooks) }
+    var maxOutput by remember { mutableStateOf(initial.maxOutputTokens.takeIf { it > 0 }?.toString() ?: "") }
     var helperModel by remember { mutableStateOf(initial.helperModel) }
     var fallbackId by remember { mutableStateOf(initial.fallbackProfileId) }
     var autoContinue by remember { mutableStateOf(initial.autoContinue) }
@@ -223,6 +224,18 @@ fun SettingsScreen(
                 }
                 Switch(checked = promptCaching, onCheckedChange = { promptCaching = it })
             }
+            OutlinedTextField(
+                value = maxOutput,
+                onValueChange = { maxOutput = it.filter(Char::isDigit).take(6) },
+                label = { Text("Макс. длина одного ответа, токенов") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "Сколько модель может написать за один шаг: от этого зависит, как большой файл она запишет за раз. Пусто: Claude 16384, " +
+                    "у остальных провайдеров свой предел (у DeepSeek обычно 4–8 тыс.). Можно поставить 32000 или 64000, если модель это поддерживает, иначе провайдер вернёт ошибку.",
+                style = MaterialTheme.typography.bodySmall,
+            )
             OutlinedTextField(
                 value = helperModel,
                 onValueChange = { helperModel = it },
@@ -412,6 +425,7 @@ fun SettingsScreen(
                             maxSteps = (maxSteps.toIntOrNull() ?: 60).coerceIn(0, 1000),
                             autoContinue = autoContinue,
                             helperModel = helperModel,
+                            maxOutputTokens = maxOutput.toIntOrNull() ?: 0,
                             fallbackProfileId = fallbackId,
                             permissionRules = permissionRules,
                             fileHooks = fileHooks,

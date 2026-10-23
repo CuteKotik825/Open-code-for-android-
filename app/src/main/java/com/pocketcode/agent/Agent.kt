@@ -238,6 +238,7 @@ ${if (root) "- root runs a command as root on THIS phone, outside the app sandbo
 - In plan mode (the user message says so) you may only read and search; finish by calling present_plan and wait for approval.
 - task starts a helper agent with its own clean context that only reads (files, grep, web) and returns a short report. Use it for broad code exploration or research so your own context stays small; give it a self-contained prompt.
 - web_search and web_fetch read the internet (docs, errors, libraries); use them when you need current or external information instead of guessing.
+- Work in large steps: make independent tool calls together in ONE response (read several files at once, run several searches together) instead of one call per turn; write a whole file with write_file rather than many tiny edits when you rewrite most of it; chain shell commands with && in one bash call.
 - Some actions need the user's approval; if the user declines, do not retry the same thing, adapt or ask.
 - Explore first (list_dir, grep) when the task touches unfamiliar code. Keep changes minimal and focused,
   do not refactor or rename things that were not asked.

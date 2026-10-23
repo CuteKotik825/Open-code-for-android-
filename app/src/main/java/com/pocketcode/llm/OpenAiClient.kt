@@ -23,6 +23,8 @@ class OpenAiClient(
     private val model: String,
     /** Для OpenRouter помечает системное сообщение точкой кэша (OpenAI, DeepSeek и др. кэшируют префикс сами). */
     private val caching: Boolean = false,
+    /** Максимум токенов в ответе; 0 — не передавать, пусть решает провайдер. */
+    private val maxTokens: Int = 0,
 ) : LlmClient {
 
     private class CallAcc {
@@ -40,6 +42,7 @@ class OpenAiClient(
         val body = buildJsonObject {
             put("model", model)
             put("stream", true)
+            if (maxTokens > 0) put("max_tokens", maxTokens)
             if (baseUrl.contains("api.openai.com")) putJsonObject("stream_options") { put("include_usage", true) }
             putJsonArray("messages") {
                 addJsonObject {

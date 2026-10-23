@@ -53,6 +53,8 @@ data class Settings(
     val dailyTokenLimit: Int = 0,
     /** Дешёвая модель того же провайдера для сводок и подагента; пусто — основная. */
     val helperModel: String = "",
+    /** Максимум токенов в одном ответе модели; 0 — по умолчанию (Claude 16384, у остальных решает провайдер). */
+    val maxOutputTokens: Int = 0,
     /** Резервный профиль на случай, если у основного кончилась квота. */
     val fallbackProfileId: String = "",
 )
@@ -120,6 +122,7 @@ class SettingsStore(context: Context) {
             priceOut = prefs.getFloat("priceOut", d.priceOut),
             dailyTokenLimit = prefs.getInt("dailyTokenLimit", d.dailyTokenLimit),
             helperModel = prefs.getString("helperModel", d.helperModel) ?: "",
+            maxOutputTokens = prefs.getInt("maxOutputTokens", d.maxOutputTokens),
             fallbackProfileId = prefs.getString("fallbackProfileId", d.fallbackProfileId) ?: "",
         )
     }
@@ -243,6 +246,7 @@ class SettingsStore(context: Context) {
             .putFloat("priceOut", s.priceOut)
             .putInt("dailyTokenLimit", s.dailyTokenLimit)
             .putString("helperModel", s.helperModel.trim())
+            .putInt("maxOutputTokens", s.maxOutputTokens)
             .putString("fallbackProfileId", s.fallbackProfileId)
             .apply()
     }

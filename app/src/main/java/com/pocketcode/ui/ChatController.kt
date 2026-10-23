@@ -1203,8 +1203,8 @@ class ChatController(private val app: Application) {
         private set
 
     private fun makeLlm(s: Settings, model: String = s.model): LlmClient = when (s.provider) {
-        Provider.ANTHROPIC -> AnthropicClient(s.baseUrl, s.apiKey, model, s.promptCaching)
-        Provider.OPENAI -> OpenAiClient(s.baseUrl, s.apiKey, model, s.promptCaching)
+        Provider.ANTHROPIC -> AnthropicClient(s.baseUrl, s.apiKey, model, s.promptCaching, s.maxOutputTokens)
+        Provider.OPENAI -> OpenAiClient(s.baseUrl, s.apiKey, model, s.promptCaching, s.maxOutputTokens)
     }
 
     private val editorDiag by lazy { DiagnosticsTool(workspace, python, shell) { emptyList() } }
@@ -1687,8 +1687,8 @@ class ChatController(private val app: Application) {
         agent?.let { return it }
         val s = settings
         val llm: LlmClient = when (s.provider) {
-            Provider.ANTHROPIC -> AnthropicClient(s.baseUrl, s.apiKey, s.model, s.promptCaching)
-            Provider.OPENAI -> OpenAiClient(s.baseUrl, s.apiKey, s.model, s.promptCaching)
+            Provider.ANTHROPIC -> AnthropicClient(s.baseUrl, s.apiKey, s.model, s.promptCaching, s.maxOutputTokens)
+            Provider.OPENAI -> OpenAiClient(s.baseUrl, s.apiKey, s.model, s.promptCaching, s.maxOutputTokens)
         }
         val baseTools = listOf(
             ReadFileTool(workspace),

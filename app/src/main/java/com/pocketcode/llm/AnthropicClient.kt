@@ -20,6 +20,8 @@ class AnthropicClient(
     private val model: String,
     /** Кэш промпта: система и история помечаются точками кэша, повторные запросы дешевле и быстрее. */
     private val caching: Boolean = false,
+    /** Максимум токенов в одном ответе; 0 — 16384. */
+    private val maxTokens: Int = 0,
 ) : LlmClient {
 
     private class Acc {
@@ -38,7 +40,7 @@ class AnthropicClient(
     ): LlmResponse {
         val body = buildJsonObject {
             put("model", model)
-            put("max_tokens", 8192)
+            put("max_tokens", if (maxTokens > 0) maxTokens else 16384)
             put("stream", true)
             if (caching) {
                 putJsonArray("system") {
