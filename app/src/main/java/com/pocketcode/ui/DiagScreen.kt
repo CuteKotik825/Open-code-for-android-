@@ -93,6 +93,14 @@ fun DiagScreen(vm: ChatController, onBack: () -> Unit, onExport: () -> Unit, onI
             Text("Всего: вход ${k(total[0])}, выход ${k(total[1])}, запросов ${total[3]}" +
                 if (vm.settings.priceIn > 0 || vm.settings.priceOut > 0) ", ≈ \$%.2f".format(vm.costOf(total[0], total[1])) else "",
                 style = MaterialTheme.typography.bodyMedium)
+            Text("По профилям за этот месяц", style = MaterialTheme.typography.titleSmall)
+            vm.profiles.forEach { p ->
+                val u = vm.usageMonth(p.id)
+                Text("• ${p.label}: вход ${k(u[0])}, выход ${k(u[1])}, запросов ${u[3]}" +
+                    if (vm.settings.priceIn > 0 || vm.settings.priceOut > 0) ", ≈ \$%.2f".format(vm.costOf(u[0], u[1])) else "",
+                    style = MaterialTheme.typography.bodySmall)
+            }
+            Text("По проектам:", style = MaterialTheme.typography.titleSmall)
             vm.usageByProject().take(6).forEach { Text("• ${it.first}: ${k(it.second)}", style = MaterialTheme.typography.bodySmall) }
             Text(
                 "Почему входных токенов так много: на каждом шаге агент заново отправляет всю историю чата, а шагов в задаче десятки. " +

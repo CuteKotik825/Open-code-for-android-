@@ -75,6 +75,10 @@
             android:exported="false"
             android:process=":python" />
 
+        <receiver
+            android:name=".service.ApprovalReceiver"
+            android:exported="false" />
+
         <service
             android:name=".service.AgentService"
             android:exported="false"

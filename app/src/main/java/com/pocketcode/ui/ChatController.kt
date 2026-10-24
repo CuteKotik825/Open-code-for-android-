@@ -121,7 +121,15 @@ class ApprovalRequest(
  * Вся логика чата живёт здесь, на уровне приложения (а не экрана): агент продолжает работу,
  * когда Activity закрыта, пока процесс держит AgentService.
  */
-class ChatController(private val app: Application) {
+class ChatController(
+    private val app: Application,
+    /** 0 — основной чат; остальные — дополнительные вкладки со своим профилем API. */
+    val tabNo: Int = 0,
+    private val startProfileId: String? = null,
+    private val startProject: String? = null,
+) {
+    val isTab: Boolean get() = tabNo > 0
+
     private val settingsStore = SettingsStore(app)
     private val sessions = SessionStore(File(app.filesDir, "sessions"))
     private val snapshots = SnapshotStore(File(app.filesDir, "snapshots"))
@@ -206,7 +214,7 @@ class ChatController(private val app: Application) {
     var currentId by mutableStateOf<String?>(null)
         private set
 
-    var currentProject by mutableStateOf(settingsStore.loadProject())
+    var currentProject by mutableStateOf(startProject ?: settingsStore.loadProject())
         private set
     var projects by mutableStateOf<List<String>>(emptyList())
         private set
@@ -326,7 +334,7 @@ class ChatController(private val app: Application) {
     init {
         refreshProjects()
         sessionList = sessions.list()
-        if (!settings.freshOnStart) {
+        if (!settings.freshOnStart && !isTab) {
             sessionList.firstOrNull { projectOf(it) == currentProject }?.let { loadInto(it.id) }
         }
     }
@@ -342,12 +350,27 @@ class ChatController(private val app: Application) {
         },
     )
         private set
-    var activeProfileId by mutableStateOf(settingsStore.loadActiveId())
+    var activeProfileId by mutableStateOf(startProfileId ?: settingsStore.loadActiveId())
         private set
 
     init {
         Secrets.known = profiles.map { it.apiKey } + settings.githubToken
+        if (isTab) profiles.firstOrNull { it.id == activeProfileId }?.let { settings = profileSettings(it) }
     }
+
+    /** Подхватывает изменённые общие настройки (для дополнительных вкладок). */
+    fun syncSettings() {
+        val fresh = settingsStore.load()
+        profiles = settingsStore.loadProfiles()
+        if (profiles.none { it.id == activeProfileId }) activeProfileId = profiles.first().id
+        settings = fresh
+        settings = profileSettings(profiles.first { it.id == activeProfileId })
+        if (!running) agent = null
+    }
+
+    /** Подпись вкладки. */
+    val tabTitle: String get() = "Чат ${tabNo + 1}"
+    val profileLabel: String get() = profiles.firstOrNull { it.id == activeProfileId }?.label ?: 
 
     /** Реальный предел контекста: в эко-режиме не больше 64 000. */
     val effectiveContext: Int get() = if (settings.ecoMode) minOf(settings.contextTokens, 64_000) else settings.contextTokens
@@ -367,6 +390,7 @@ class ChatController(private val app: Application) {
         settingsStore.save(s)
         runCatching { linuxEnv.configureGit(s.gitName, s.gitEmail, s.githubToken) }
         agent = null // пересоберём с новыми настройками, история лежит в controller
+        (app as? com.pocketcode.PocketCodeApp)?.tabs?.forEach { if (it !== this) it.syncSettings() }
     }
 
     /** Быстрое переключение ключа/модели из чата. */
@@ -374,8 +398,10 @@ class ChatController(private val app: Application) {
         if (running || id == activeProfileId) return
         val p = profiles.firstOrNull { it.id == id } ?: return
         settings = profileSettings(p)
-        settingsStore.save(settings)
-        settingsStore.saveProfiles(profiles, id)
+        if (!isTab) {
+            settingsStore.save(settings)
+            settingsStore.saveProfiles(profiles, id)
+        }
         activeProfileId = id
         agent = null
     }
@@ -405,7 +431,7 @@ class ChatController(private val app: Application) {
     private fun switchTo(name: String) {
         cancelRun()
         currentProject = name
-        settingsStore.saveProject(name)
+        if (!isTab) settingsStore.saveProject(name)
         workspace.root = projectDir(name)
         items.clear()
         history = mutableListOf()
@@ -938,9 +964,9 @@ class ChatController(private val app: Application) {
     private val notes = java.util.concurrent.ConcurrentLinkedQueue<String>()
 
     /** Задачи, которые начнутся одна за другой после текущей. */
-    val queue = mutableStateListOf<String>().apply { addAll(settingsStore.loadQueue()) }
+    val queue = mutableStateListOf<String>().apply { if (!isTab) addAll(settingsStore.loadQueue()) }
 
-    private fun saveQueue() = settingsStore.saveQueue(queue.toList())
+    private fun saveQueue() { if (!isTab) settingsStore.saveQueue(queue.toList()) }
 
     private var lastRunFailed = false
 
@@ -1619,7 +1645,39 @@ class ChatController(private val app: Application) {
 
     private fun dayKey(): String = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
 
+    // Помесячный расход по профилям: ключ "yyyy-MM|id профиля"
+    private val profileUsage: MutableMap<String, List<Long>> = runCatching {
+        kotlinx.serialization.json.Json.decodeFromString<Map<String, List<Long>>>(settingsStore.rawGet("profileUsage") ?: "{}").toMutableMap()
+    }.getOrDefault(mutableMapOf())
+
+    private fun monthKey(): String = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.US).format(java.util.Date())
+
+    /** [вход, выход, кэш, запросов] профиля за текущий месяц. */
+    fun usageMonth(profileId: String): LongArray {
+        usageVersion
+        val v = profileUsage[monthKey() + "|" + profileId] ?: return LongArray(4)
+        return LongArray(4) { v[it] }
+    }
+
+    /** Расход профиля за последние месяцы: пары (месяц, вход+выход). */
+    fun usageMonthsOf(profileId: String): List<Pair<String, Long>> =
+        profileUsage.entries.filter { it.key.endsWith("|$profileId") }
+            .map { it.key.substringBefore('|') to it.value[0] + it.value[1] }.sortedByDescending { it.first }.take(6)
+
     private fun recordUsage(input: Int, output: Int, cached: Int) {
+        // Несколько вкладок пишут в одно хранилище: сначала подхватываем чужие записи
+        usage.clear(); usage.putAll(settingsStore.loadUsage())
+        runCatching {
+            profileUsage.clear()
+            profileUsage.putAll(kotlinx.serialization.json.Json.decodeFromString<Map<String, List<Long>>>(settingsStore.rawGet("profileUsage") ?: "{}"))
+        }
+        run {
+            val pk = monthKey() + "|" + activeProfileId
+            val o = profileUsage[pk] ?: listOf(0L, 0L, 0L, 0L)
+            profileUsage[pk] = listOf(o[0] + input, o[1] + output, o[2] + cached, o[3] + 1)
+            if (profileUsage.size > 240) profileUsage.keys.sorted().take(profileUsage.size - 200).forEach { profileUsage.remove(it) }
+            settingsStore.rawPut("profileUsage", kotlinx.serialization.json.Json.encodeToString(profileUsage.toMap()))
+        }
         val key = dayKey() + "|" + currentProject
         val old = usage[key] ?: listOf(0L, 0L, 0L, 0L)
         usage[key] = listOf(old[0] + input, old[1] + output, old[2] + cached, old[3] + 1)
@@ -1657,6 +1715,8 @@ class ChatController(private val app: Application) {
         (input * settings.priceIn + output * settings.priceOut) / 1_000_000.0
 
     fun resetUsage() {
+        profileUsage.clear()
+        settingsStore.rawPut("profileUsage", "{}")
         usage.clear()
         settingsStore.saveUsage(usage)
         usageVersion++
@@ -1983,7 +2043,7 @@ class ChatController(private val app: Application) {
         val deferred = CompletableDeferred<Boolean>()
         approval = ApprovalRequest(tool, description, deferred)
         Notifier.updateWorking(app, "Ждёт подтверждения: $tool")
-        if (!appVisible) Notifier.alert(app, "Нужно подтверждение: $tool", description.take(300))
+        if (!appVisible) Notifier.alert(app, "Нужно подтверждение: $tool", description.take(300), tab = tabNo)
         try {
             return deferred.await()
         } finally {
@@ -2102,7 +2162,10 @@ class ChatController(private val app: Application) {
 
     // ---------- сервис ----------
 
+    private var serviceHeld = false
+
     private fun startService() {
+        if (!serviceHeld) { serviceHeld = true; serviceUsers.incrementAndGet() }
         try {
             ContextCompat.startForegroundService(app, Intent(app, AgentService::class.java))
         } catch (e: Exception) {
@@ -2111,9 +2174,16 @@ class ChatController(private val app: Application) {
     }
 
     private fun stopService() {
+        if (!serviceHeld) return
+        serviceHeld = false
+        if (serviceUsers.decrementAndGet() > 0) return
         try {
             app.stopService(Intent(app, AgentService::class.java))
         } catch (e: Exception) {
         }
+    }
+
+    companion object {
+        private val serviceUsers = java.util.concurrent.atomic.AtomicInteger(0)
     }
 }

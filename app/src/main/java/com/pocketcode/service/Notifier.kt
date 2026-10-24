@@ -11,6 +11,7 @@ import com.pocketcode.MainActivity
 
 object Notifier {
     const val ACTION_STOP = "com.pocketcode.action.STOP"
+    const val ACTION_APPROVAL = "com.pocketcode.action.APPROVAL"
     const val FOREGROUND_ID = 1
     private const val ALERT_ID = 2
     private const val CHANNEL_WORK = "agent_work"
@@ -63,18 +64,26 @@ object Notifier {
     }
 
     /** Одноразовое уведомление: нужно подтверждение или агент закончил. */
-    fun alert(ctx: Context, title: String, text: String) {
+    fun alert(ctx: Context, title: String, text: String, tab: Int = -1) {
         runCatching {
             ensureChannels(ctx)
-            val n = NotificationCompat.Builder(ctx, CHANNEL_ALERT)
+            fun act(allow: Boolean) = PendingIntent.getBroadcast(
+                ctx, if (allow) 10 + tab else 100 + tab,
+                Intent(ctx, ApprovalReceiver::class.java).setAction(ACTION_APPROVAL).putExtra("tab", tab).putExtra("allow", allow),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val b = NotificationCompat.Builder(ctx, CHANNEL_ALERT)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
                 .setAutoCancel(true)
                 .setContentIntent(openApp(ctx))
-                .build()
-            manager(ctx).notify(ALERT_ID, n)
+            if (tab >= 0) {
+                b.addAction(0, "Разрешить", act(true))
+                b.addAction(0, "Отклонить", act(false))
+            }
+            manager(ctx).notify(ALERT_ID, b.build())
         }
     }
 

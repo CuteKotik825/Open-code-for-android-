@@ -264,6 +264,14 @@ fun SettingsScreen(
                 OutlinedButton(onClick = onOpenCompare, modifier = Modifier.weight(1f)) { Text("Сравнить модели") }
             }
             vm.verifyText?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            run {
+                val u = vm.usageMonth(activeId)
+                fun k(n: Long) = if (n >= 1000) "${n / 1000} тыс." else "$n"
+                Text(
+                    "Потрачено этим профилем за месяц: вход ${k(u[0])}, выход ${k(u[1])}, запросов ${u[3]}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             Text(
                 "Для OpenRouter укажи https://openrouter.ai/api/v1 и имя модели вроде anthropic/claude-sonnet-4.5.",
                 style = MaterialTheme.typography.bodySmall,

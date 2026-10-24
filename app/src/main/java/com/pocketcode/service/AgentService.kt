@@ -29,7 +29,7 @@ class AgentService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == Notifier.ACTION_STOP) {
-            (application as PocketCodeApp).controller.stop()
+            (application as PocketCodeApp).tabs.forEach { it.stop() }
             stopSelf()
             return START_NOT_STICKY
         }

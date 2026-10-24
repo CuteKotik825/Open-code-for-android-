@@ -16,6 +16,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -44,7 +51,9 @@ private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, 
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
-        get() = (application as PocketCodeApp).controller
+        get() = (application as PocketCodeApp).current
+
+    private val pocketApp: PocketCodeApp get() = application as PocketCodeApp
 
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -95,7 +104,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         handleIntent(intent)
         requestNotificationPermission()
-        val vm = controller
         val actions = FileActions(
             pickFiles = { pickFiles.launch(arrayOf("*/*")) },
             pickFolderToImport = { pickFolderToImport.launch(null) },
@@ -105,6 +113,7 @@ class MainActivity : ComponentActivity() {
         )
         setContent {
             AppTheme {
+                val vm = pocketApp.current
                 var screen by remember { mutableStateOf(Screen.CHAT) }
                 val pv = vm.previewUrl
                 val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 840
@@ -113,6 +122,10 @@ class MainActivity : ComponentActivity() {
                 } else when (screen) {
                     Screen.CHAT -> {
                         val chat: @Composable () -> Unit = {
+                          androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+                            TabBar(pocketApp)
+                            androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
+                            key(vm) {
                             ChatScreen(
                                 vm,
                                 onOpenSettings = { screen = Screen.SETTINGS },
@@ -128,6 +141,9 @@ class MainActivity : ComponentActivity() {
                                     pickFolderAsProject.launch(null)
                                 },
                             )
+                            }
+                            }
+                          }
                         }
                         if (wide) {
                             // Планшет и ландшафт: чат слева, файлы проекта справа
@@ -150,10 +166,11 @@ class MainActivity : ComponentActivity() {
                     }
                     Screen.SETTINGS -> {
                         BackHandler { screen = Screen.CHAT }
+                        val pv0 = pocketApp.controller
                         SettingsScreen(
-                            vm = vm,
-                            initial = vm.settings,
-                            onSave = { s, p, a -> vm.saveSettings(s, p, a) },
+                            vm = pv0,
+                            initial = pv0.settings,
+                            onSave = { s, p, a -> pv0.saveSettings(s, p, a) },
                             onResetContext = { vm.resetContext() },
                             onOpenCompare = { screen = Screen.COMPARE },
                             onBack = { screen = Screen.CHAT },
@@ -241,7 +258,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        controller.appVisible = true
+        pocketApp.tabs.forEach { it.appVisible = true }
     }
 
     override fun onResume() {
@@ -251,7 +268,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
-        controller.appVisible = false
+        pocketApp.tabs.forEach { it.appVisible = false }
         super.onStop()
     }
 
@@ -296,5 +313,30 @@ private fun AppTheme(content: @Composable () -> Unit) {
     )
     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides dens) {
         MaterialTheme(colorScheme = scheme, content = content)
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun TabBar(app: PocketCodeApp) {
+    androidx.compose.foundation.layout.Row(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .horizontalScroll(androidx.compose.foundation.rememberScrollState())
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        app.tabs.forEachIndexed { i, t ->
+            androidx.compose.material3.FilterChip(
+                selected = i == app.activeTab,
+                onClick = { app.activeTab = i },
+                label = { Text((if (t.running) "● " else "") + t.tabTitle + " · " + t.profileLabel.take(14), maxLines = 1) },
+                trailingIcon = if (i > 0) ({
+                    androidx.compose.material3.Text("×", modifier = Modifier.clickable { app.closeTab(i) }.padding(horizontal = 4.dp))
+                }) else null,
+            )
+        }
+        androidx.compose.material3.TextButton(onClick = { app.addTab() }) { Text("+ чат") }
     }
 }
