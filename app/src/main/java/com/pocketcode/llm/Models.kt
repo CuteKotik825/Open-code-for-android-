@@ -36,6 +36,8 @@ data class LlmResponse(
     val inputTokens: Int = 0,
     val outputTokens: Int = 0,
     val cachedTokens: Int = 0,
+    /** Какую модель сервер назвал в ответе (может отличаться от запрошенной). */
+    val servedModel: String = "",
 )
 
 interface LlmClient {

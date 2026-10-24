@@ -22,6 +22,10 @@ data class Profile(
     val baseUrl: String,
     val model: String,
     val apiKey: String,
+    /** Размер контекста этой модели в токенах; 0 — взять общую настройку. */
+    val contextTokens: Int = 0,
+    /** Максимум токенов в одном ответе; 0 — по умолчанию провайдера. */
+    val maxOutputTokens: Int = 0,
 )
 
 data class Settings(
@@ -55,6 +59,12 @@ data class Settings(
     val helperModel: String = "",
     /** Максимум токенов в одном ответе модели; 0 — по умолчанию (Claude 16384, у остальных решает провайдер). */
     val maxOutputTokens: Int = 0,
+    /** Режим экономии: меньше контекст, агрессивнее усечение старых выводов. */
+    val ecoMode: Boolean = false,
+    /** Масштаб шрифта интерфейса. */
+    val fontScale: Float = 1f,
+    /** Компактный режим: плотнее отступы. */
+    val compactUi: Boolean = false,
     /** Резервный профиль на случай, если у основного кончилась квота. */
     val fallbackProfileId: String = "",
 )
@@ -123,6 +133,9 @@ class SettingsStore(context: Context) {
             dailyTokenLimit = prefs.getInt("dailyTokenLimit", d.dailyTokenLimit),
             helperModel = prefs.getString("helperModel", d.helperModel) ?: "",
             maxOutputTokens = prefs.getInt("maxOutputTokens", d.maxOutputTokens),
+            ecoMode = prefs.getBoolean("ecoMode", d.ecoMode),
+            fontScale = prefs.getFloat("fontScale", d.fontScale),
+            compactUi = prefs.getBoolean("compactUi", d.compactUi),
             fallbackProfileId = prefs.getString("fallbackProfileId", d.fallbackProfileId) ?: "",
         )
     }
@@ -247,6 +260,9 @@ class SettingsStore(context: Context) {
             .putInt("dailyTokenLimit", s.dailyTokenLimit)
             .putString("helperModel", s.helperModel.trim())
             .putInt("maxOutputTokens", s.maxOutputTokens)
+            .putBoolean("ecoMode", s.ecoMode)
+            .putFloat("fontScale", s.fontScale)
+            .putBoolean("compactUi", s.compactUi)
             .putString("fallbackProfileId", s.fallbackProfileId)
             .apply()
     }

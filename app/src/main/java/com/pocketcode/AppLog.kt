@@ -24,7 +24,7 @@ object AppLog {
     fun log(level: String, text: String) {
         val f = file ?: return
         runCatching {
-            f.appendText("${fmt.format(Date())} $level ${text.replace('\n', ' ').take(600)}\n")
+            f.appendText("${fmt.format(Date())} $level ${Secrets.mask(text.replace('\n', ' ').take(600))}\n")
             if (f.length() > 200_000) {
                 val keep = f.readText().takeLast(120_000)
                 f.writeText(keep.substringAfter('\n'))

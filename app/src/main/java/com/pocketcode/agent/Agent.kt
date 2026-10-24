@@ -36,6 +36,7 @@ sealed class AgentEvent {
 }
 
 private const val MAX_TOOL_OUTPUT = 30_000
+private val RETRY_DELAYS = intArrayOf(3, 8, 20, 45)
 
 class Agent(
     llm: LlmClient,
@@ -60,6 +61,18 @@ class Agent(
 ) {
     private var llm: LlmClient = llm
     private var usedFallback = false
+
+    /** Через сколько секунд повторить после временной ошибки; null — ошибка не временная. */
+    private fun retryWaitSec(e: Exception, attempt: Int): Int? {
+        if (attempt >= RETRY_DELAYS.size) return null
+        val m = (e.message ?: "").lowercase()
+        if (listOf("insufficient", "quota", "billing", "credit", "invalid api key", "incorrect api key", "unauthorized", "context", "too long").any { m.contains(it) }) return null
+        if (e is java.io.IOException && m.startsWith("http ")) {
+            val code = m.removePrefix("http ").takeWhile { it.isDigit() }.toIntOrNull() ?: return null
+            return if (code in 500..599 || code == 408 || code == 429) RETRY_DELAYS[attempt] else null
+        }
+        return if (e is java.io.IOException) RETRY_DELAYS[attempt] else null
+    }
 
     private fun looksLikeQuota(msg: String?): Boolean {
         val m = msg?.lowercase() ?: return false
@@ -103,6 +116,24 @@ class Agent(
         history += Message("user", images + Block.Text(text.ifBlank { "(см. изображение)" }))
         var steps = 0
         var overflowRetried = false
+
+        suspend fun callLlm(): com.pocketcode.llm.LlmResponse {
+            var attempt = 0
+            while (true) {
+                try {
+                    return llm.complete(system, history, specs) { delta -> trySend(AgentEvent.TextDelta(delta)) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    val wait = retryWaitSec(e, attempt) ?: throw e
+                    attempt++
+                    send(AgentEvent.TextEnd)
+                    send(AgentEvent.Notice("Связь с моделью прервалась (${(e.message ?: e.javaClass.simpleName).take(80)}). Повтор через $wait с (попытка $attempt из ${RETRY_DELAYS.size})."))
+                    kotlinx.coroutines.delay(wait * 1000L)
+                }
+            }
+        }
+
         while (true) {
             if (maxSteps > 0 && ++steps > maxSteps) {
                 send(AgentEvent.StepLimit)
@@ -120,7 +151,7 @@ class Agent(
                 }
             }
             val response = try {
-                llm.complete(system, history, specs) { delta -> trySend(AgentEvent.TextDelta(delta)) }
+                callLlm()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

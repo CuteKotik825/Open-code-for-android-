@@ -21,6 +21,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
+import androidx.compose.material3.Slider
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +47,7 @@ fun SettingsScreen(
     initial: Settings,
     onSave: (Settings, List<Profile>, String) -> Unit,
     onResetContext: () -> Unit,
+    onOpenCompare: () -> Unit,
     onBack: () -> Unit,
 ) {
     var provider by remember { mutableStateOf(initial.provider) }
@@ -52,7 +58,7 @@ fun SettingsScreen(
     var gitName by remember { mutableStateOf(initial.gitName) }
     var gitEmail by remember { mutableStateOf(initial.gitEmail) }
     var autoApprove by remember { mutableStateOf(initial.autoApprove) }
-    var contextTokens by remember { mutableStateOf(initial.contextTokens.toString()) }
+    var contextTokens by remember { mutableStateOf((vm.profiles.firstOrNull { it.id == vm.activeProfileId }?.contextTokens?.takeIf { it > 0 } ?: initial.contextTokens).toString()) }
     var freshOnStart by remember { mutableStateOf(initial.freshOnStart) }
     var smartApprove by remember { mutableStateOf(initial.smartApprove) }
     var allowRules by remember { mutableStateOf(initial.allowRules) }
@@ -61,16 +67,23 @@ fun SettingsScreen(
     var maxSteps by remember { mutableStateOf(initial.maxSteps.toString()) }
     var permissionRules by remember { mutableStateOf(initial.permissionRules) }
     var fileHooks by remember { mutableStateOf(initial.fileHooks) }
-    var maxOutput by remember { mutableStateOf(initial.maxOutputTokens.takeIf { it > 0 }?.toString() ?: "") }
+    var maxOutput by remember { mutableStateOf((vm.profiles.firstOrNull { it.id == vm.activeProfileId }?.maxOutputTokens ?: initial.maxOutputTokens).takeIf { it > 0 }?.toString() ?: "") }
     var helperModel by remember { mutableStateOf(initial.helperModel) }
     var fallbackId by remember { mutableStateOf(initial.fallbackProfileId) }
     var autoContinue by remember { mutableStateOf(initial.autoContinue) }
+    var ecoMode by remember { mutableStateOf(initial.ecoMode) }
+    var fontScale by remember { mutableStateOf(initial.fontScale) }
+    var compactUi by remember { mutableStateOf(initial.compactUi) }
+    var showTemplates by remember { mutableStateOf(false) }
 
     // Профили ключей: форма ниже всегда редактирует активный профиль
     var profiles by remember { mutableStateOf(vm.profiles) }
     var activeId by remember { mutableStateOf(vm.activeProfileId) }
     var label by remember { mutableStateOf(vm.profiles.firstOrNull { it.id == vm.activeProfileId }?.label ?: "Основной") }
-    fun formProfile() = Profile(activeId, label.ifBlank { "Без названия" }, provider, baseUrl.trim(), model.trim(), apiKey.trim())
+    fun formProfile() = Profile(
+        activeId, label.ifBlank { "Без названия" }, provider, baseUrl.trim(), model.trim(), apiKey.trim(),
+        (contextTokens.toIntOrNull() ?: 128_000).coerceIn(8_000, 2_000_000), maxOutput.toIntOrNull() ?: 0,
+    )
     fun withForm(): List<Profile> =
         if (profiles.any { it.id == activeId }) profiles.map { if (it.id == activeId) formProfile() else it }
         else profiles + formProfile()
@@ -81,12 +94,40 @@ fun SettingsScreen(
         baseUrl = p.baseUrl
         model = p.model
         apiKey = p.apiKey
+        contextTokens = p.contextTokens.takeIf { it > 0 }?.toString() ?: contextTokens
+        maxOutput = p.maxOutputTokens.takeIf { it > 0 }?.toString() ?: ""
+    }
+
+    fun build() = vm.settings.copy(
+        provider = provider, baseUrl = baseUrl, model = model, apiKey = apiKey,
+        githubToken = githubToken, gitName = gitName, gitEmail = gitEmail, autoApprove = autoApprove,
+        contextTokens = (contextTokens.toIntOrNull() ?: 128_000).coerceIn(8_000, 2_000_000),
+        freshOnStart = freshOnStart, smartApprove = smartApprove, allowRules = allowRules,
+        promptCaching = promptCaching, maxSteps = (maxSteps.toIntOrNull() ?: 60).coerceIn(0, 1000),
+        autoContinue = autoContinue, helperModel = helperModel, maxOutputTokens = maxOutput.toIntOrNull() ?: 0,
+        fallbackProfileId = fallbackId, permissionRules = permissionRules, fileHooks = fileHooks,
+        ecoMode = ecoMode, fontScale = fontScale, compactUi = compactUi,
+    )
+
+    // Автосохранение: через полсекунды после последнего изменения
+    val snapshot = listOf(
+        provider, baseUrl, model, apiKey, githubToken, gitName, gitEmail, autoApprove, contextTokens, freshOnStart,
+        smartApprove, allowRules, promptCaching, maxSteps, permissionRules, fileHooks, maxOutput, helperModel,
+        fallbackId, autoContinue, ecoMode, fontScale, compactUi, label, activeId, profiles,
+    )
+    var firstRun by remember { mutableStateOf(true) }
+    var savedMark by remember { mutableStateOf(false) }
+    LaunchedEffect(snapshot) {
+        if (firstRun) { firstRun = false; return@LaunchedEffect }
+        delay(700)
+        onSave(build(), withForm(), activeId)
+        savedMark = true
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Настройки") },
+                title = { Text(if (savedMark) "Настройки · сохранено" else "Настройки") },
                 navigationIcon = { TextButton(onClick = onBack) { Text("Назад") } },
             )
         },
@@ -151,6 +192,32 @@ fun SettingsScreen(
                 }) { Text("Удалить этот профиль") }
             }
 
+
+            OutlinedButton(onClick = { showTemplates = !showTemplates }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (showTemplates) "Скрыть шаблоны провайдеров" else "Шаблоны провайдеров (DeepSeek, OpenRouter, Gemini…)")
+            }
+            if (showTemplates) {
+                com.pocketcode.PROVIDER_TEMPLATES.forEach { t ->
+                    androidx.compose.material3.OutlinedCard(
+                        onClick = {
+                            provider = t.provider; baseUrl = t.baseUrl; model = t.model
+                            contextTokens = t.context.toString()
+                            maxOutput = t.maxOutput.takeIf { it > 0 }?.toString() ?: ""
+                            if (apiKey.isBlank() && t.keyPlaceholder.isNotBlank()) apiKey = t.keyPlaceholder
+                            if (label.startsWith("Профиль") || label == "Основной") label = t.name
+                            showTemplates = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(t.name, style = MaterialTheme.typography.titleSmall)
+                            Text(t.note, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+                Text("Шаблон заполняет адрес, модель и размеры; останется вставить свой ключ.", style = MaterialTheme.typography.bodySmall)
+            }
+
             Text("Модель", style = MaterialTheme.typography.titleMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Provider.values().forEach { p ->
@@ -187,6 +254,15 @@ fun SettingsScreen(
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { vm.verifyProfile(formProfile()) },
+                    enabled = vm.verifyingId == null,
+                    modifier = Modifier.weight(1f),
+                ) { Text(if (vm.verifyingId != null) "Проверяю…" else "Проверить модель") }
+                OutlinedButton(onClick = onOpenCompare, modifier = Modifier.weight(1f)) { Text("Сравнить модели") }
+            }
+            vm.verifyText?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             Text(
                 "Для OpenRouter укажи https://openrouter.ai/api/v1 и имя модели вроде anthropic/claude-sonnet-4.5.",
                 style = MaterialTheme.typography.bodySmall,
@@ -195,7 +271,7 @@ fun SettingsScreen(
             OutlinedTextField(
                 value = contextTokens,
                 onValueChange = { contextTokens = it.filter(Char::isDigit).take(8) },
-                label = { Text("Размер контекста модели, токенов") },
+                label = { Text("Размер контекста этого профиля, токенов") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
@@ -212,6 +288,27 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
 
+            Text("Экономия и вид", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Эко-режим")
+                    Text(
+                        "Один переключатель: контекст не больше 64 000, старые результаты инструментов обрезаются сразу, сводки делает модель-помощник. Дешевле в 2–4 раза, но модель помнит меньше.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(checked = ecoMode, onCheckedChange = { ecoMode = it })
+            }
+            Text("Размер шрифта: ${(fontScale * 100).toInt()}%")
+            Slider(value = fontScale, onValueChange = { fontScale = (Math.round(it * 20) / 20f) }, valueRange = 0.8f..1.4f)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Компактный вид")
+                    Text("Меньше отступов в чате, влезает больше текста.", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = compactUi, onCheckedChange = { compactUi = it })
+            }
+
             Text("Контекст и память", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -227,7 +324,7 @@ fun SettingsScreen(
             OutlinedTextField(
                 value = maxOutput,
                 onValueChange = { maxOutput = it.filter(Char::isDigit).take(6) },
-                label = { Text("Макс. длина одного ответа, токенов") },
+                label = { Text("Макс. длина ответа этого профиля, токенов") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -404,39 +501,8 @@ fun SettingsScreen(
                 ) { Text("Скачать и установить") }
             }
 
-            Button(
-                onClick = {
-                    val finalProfiles = withForm()
-                    onSave(
-                        Settings(
-                            provider = provider,
-                            baseUrl = baseUrl,
-                            model = model,
-                            apiKey = apiKey,
-                            githubToken = githubToken,
-                            gitName = gitName,
-                            gitEmail = gitEmail,
-                            autoApprove = autoApprove,
-                            contextTokens = (contextTokens.toIntOrNull() ?: 128_000).coerceIn(8_000, 2_000_000),
-                            freshOnStart = freshOnStart,
-                            smartApprove = smartApprove,
-                            allowRules = allowRules,
-                            promptCaching = promptCaching,
-                            maxSteps = (maxSteps.toIntOrNull() ?: 60).coerceIn(0, 1000),
-                            autoContinue = autoContinue,
-                            helperModel = helperModel,
-                            maxOutputTokens = maxOutput.toIntOrNull() ?: 0,
-                            fallbackProfileId = fallbackId,
-                            permissionRules = permissionRules,
-                            fileHooks = fileHooks,
-                        ),
-                        finalProfiles,
-                        activeId,
-                    )
-                    onBack()
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Сохранить") }
+            Text("Все изменения сохраняются автоматически.", style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(24.dp))
         }
     }
 }

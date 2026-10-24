@@ -135,6 +135,7 @@ class OpenAiClient(
         var inTok = 0
         var outTok = 0
         var cacheTok = 0
+        var served = ""
 
         Http.postSse(
             baseUrl.trimEnd('/') + "/chat/completions",
@@ -145,6 +146,7 @@ class OpenAiClient(
             (ev["error"] as? JsonObject)?.let { err ->
                 throw IOException((err["message"] as? JsonPrimitive)?.contentOrNull ?: data.take(400))
             }
+            (ev["model"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotEmpty() }?.let { served = it }
             (ev["usage"] as? JsonObject)?.let { u ->
                 inTok = (u["prompt_tokens"] as? JsonPrimitive)?.intOrNull ?: inTok
                 outTok = (u["completion_tokens"] as? JsonPrimitive)?.intOrNull ?: outTok
@@ -183,6 +185,6 @@ class OpenAiClient(
             }
             blocks += Block.ToolUse(c.id.ifEmpty { "call_$index" }, c.name, input)
         }
-        return LlmResponse(blocks, finishReason, inTok, outTok, cacheTok)
+        return LlmResponse(blocks, finishReason, inTok, outTok, cacheTok, served)
     }
 }

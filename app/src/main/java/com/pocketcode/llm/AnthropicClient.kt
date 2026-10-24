@@ -117,6 +117,7 @@ class AnthropicClient(
         var inTok = 0
         var outTok = 0
         var cacheTok = 0
+        var served = ""
 
         Http.postSse(
             baseUrl.trimEnd('/') + "/v1/messages",
@@ -156,6 +157,7 @@ class AnthropicClient(
                     }
                 }
                 "message_start" -> {
+                    served = ev["message"]?.jsonObject?.get("model")?.jsonPrimitive?.contentOrNull.orEmpty()
                     val u = ev["message"]?.jsonObject?.get("usage")?.jsonObject
                     inTok = (u?.get("input_tokens")?.jsonPrimitive?.intOrNull ?: 0) +
                         (u?.get("cache_creation_input_tokens")?.jsonPrimitive?.intOrNull ?: 0)
@@ -188,6 +190,6 @@ class AnthropicClient(
                 }
             }
         }
-        return LlmResponse(blocks, stopReason, inTok, outTok, cacheTok)
+        return LlmResponse(blocks, stopReason, inTok, outTok, cacheTok, served)
     }
 }

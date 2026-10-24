@@ -35,11 +35,12 @@ import com.pocketcode.ui.DiagScreen
 import com.pocketcode.ui.PreviewScreen
 import com.pocketcode.ui.FileActions
 import com.pocketcode.ui.FilesScreen
+import com.pocketcode.ui.CompareScreen
 import com.pocketcode.ui.ProjectsScreen
 import com.pocketcode.ui.SessionsScreen
 import com.pocketcode.ui.SettingsScreen
 
-private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG }
+private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE }
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
@@ -145,8 +146,13 @@ class MainActivity : ComponentActivity() {
                             initial = vm.settings,
                             onSave = { s, p, a -> vm.saveSettings(s, p, a) },
                             onResetContext = { vm.resetContext() },
+                            onOpenCompare = { screen = Screen.COMPARE },
                             onBack = { screen = Screen.CHAT },
                         )
+                    }
+                    Screen.COMPARE -> {
+                        BackHandler { screen = Screen.SETTINGS }
+                        CompareScreen(vm, onBack = { screen = Screen.SETTINGS })
                     }
                     Screen.PROJECTS -> {
                         BackHandler { screen = Screen.CHAT }

@@ -20,6 +20,7 @@ import com.pocketcode.Settings
 import com.pocketcode.SettingsStore
 import com.pocketcode.agent.Agent
 import com.pocketcode.llm.Block
+import com.pocketcode.Secrets
 import com.pocketcode.tools.NotesTool
 import com.pocketcode.tools.TestTool
 import com.pocketcode.tools.Shell
@@ -332,12 +333,28 @@ class ChatController(private val app: Application) {
 
     // ---------- настройки ----------
 
-    var profiles by mutableStateOf(settingsStore.loadProfiles())
+    var profiles by mutableStateOf(
+        settingsStore.loadProfiles().map {
+            // Старые профили без своих размеров получают прежние общие значения
+            if (it.contextTokens == 0) it.copy(contextTokens = settings.contextTokens, maxOutputTokens = settings.maxOutputTokens) else it
+        },
+    )
         private set
     var activeProfileId by mutableStateOf(settingsStore.loadActiveId())
         private set
 
+    init {
+        Secrets.known = profiles.map { it.apiKey } + settings.githubToken
+    }
+
+    fun profileSettings(p: Profile): Settings = settings.copy(
+        provider = p.provider, baseUrl = p.baseUrl, model = p.model, apiKey = p.apiKey,
+        contextTokens = if (p.contextTokens > 0) p.contextTokens else settings.contextTokens,
+        maxOutputTokens = p.maxOutputTokens,
+    )
+
     fun saveSettings(s: Settings, newProfiles: List<Profile>, activeId: String) {
+        Secrets.known = newProfiles.map { it.apiKey } + s.githubToken
         profiles = newProfiles
         activeProfileId = activeId
         settingsStore.saveProfiles(newProfiles, activeId)
@@ -351,7 +368,7 @@ class ChatController(private val app: Application) {
     fun switchProfile(id: String) {
         if (running || id == activeProfileId) return
         val p = profiles.firstOrNull { it.id == id } ?: return
-        settings = settings.copy(provider = p.provider, baseUrl = p.baseUrl, model = p.model, apiKey = p.apiKey)
+        settings = profileSettings(p)
         settingsStore.save(settings)
         settingsStore.saveProfiles(profiles, id)
         activeProfileId = id
@@ -1285,7 +1302,9 @@ class ChatController(private val app: Application) {
         }
     }
 
-    fun buildReport(): String {
+    fun buildReport(): String = Secrets.mask(buildReportRaw())
+
+    private fun buildReportRaw(): String {
         val s = settings
         val ver = runCatching { app.packageManager.getPackageInfo(app.packageName, 0).versionName }.getOrNull() ?: "?"
         return buildString {
@@ -1303,6 +1322,101 @@ class ChatController(private val app: Application) {
             appendLine()
             appendLine("Журнал (последние события):")
             append(AppLog.tail(60))
+        }
+    }
+
+    // --- проверка и сравнение моделей ---
+    var verifyText by mutableStateOf<String?>(null)
+    var verifyingId by mutableStateOf<String?>(null)
+        private set
+
+    private fun norm(s: String) = s.lowercase().substringAfterLast('/').replace(Regex("[^a-z0-9]"), "")
+
+    fun verifyProfile(p: Profile) {
+        if (verifyingId != null) return
+        verifyingId = p.id
+        verifyText = "Проверяю «${p.label}»…"
+        scope.launch {
+            val text = try {
+                require(p.apiKey.isNotBlank()) { "у профиля нет ключа" }
+                val t0 = System.currentTimeMillis()
+                val r = kotlinx.coroutines.withTimeout(90_000) {
+                    makeLlm(profileSettings(p), p.model).complete(
+                        "You are being tested. Answer exactly in the requested format, nothing else.",
+                        listOf(Message("user", listOf(Block.Text(
+                            "Line 1: state your exact model name and version and the company that trained you. " +
+                                "Line 2: the result of 1234*5678, digits only.",
+                        )))),
+                        emptyList(),
+                    ) { }
+                }
+                val ms = System.currentTimeMillis() - t0
+                val answer = r.blocks.filterIsInstance<Block.Text>().joinToString("\n") { it.text }.trim()
+                val lines = mutableListOf<String>()
+                lines += "Профиль: ${p.label}, запрошена модель: ${p.model}"
+                if (r.servedModel.isBlank()) lines += "⚪ Сервер не назвал модель в ответе (некоторые прокси так делают), по этому признаку проверить нельзя."
+                else if (norm(r.servedModel).contains(norm(p.model)) || norm(p.model).contains(norm(r.servedModel)))
+                    lines += "✅ Сервер ответил моделью: ${r.servedModel}"
+                else lines += "⚠️ Сервер ответил другой моделью: ${r.servedModel} (в профиле: ${p.model}). Возможно, подменили."
+                val claim = answer.lines().firstOrNull { it.isNotBlank() }.orEmpty()
+                lines += "Сама о себе: ${claim.take(160).ifEmpty { "(пусто)" }}"
+                val expected = listOf(
+                    "claude" to "anthropic", "gpt" to "openai", "o1" to "openai", "o3" to "openai", "deepseek" to "deepseek",
+                    "gemini" to "google", "llama" to "meta", "qwen" to "qwen", "mistral" to "mistral", "minimax" to "minimax", "grok" to "xai",
+                ).firstOrNull { norm(p.model).contains(it.first) }
+                if (expected != null) {
+                    val c = claim.lowercase()
+                    if (c.contains(expected.first) || c.contains(expected.second)) lines += "✅ Самоописание согласуется с названием модели."
+                    else lines += "⚠️ Самоописание не похоже на «${expected.first}». Модели иногда ошибаются в самоописании, но вместе с другими признаками это повод насторожиться."
+                }
+                val math = answer.contains("7006652") || answer.contains("7 006 652") || answer.contains("7,006,652")
+                lines += if (math) "✅ Арифметика 1234×5678 верна." else "⚠️ Арифметика 1234×5678 не сошлась (слабые модели часто ошибаются)."
+                lines += "Время ответа: ${ms / 1000.0} с" + if (r.inputTokens > 0) ", токенов вход/выход: ${r.inputTokens}/${r.outputTokens}" else ""
+                lines += "Важно: поле «модель» в ответе может подделать и недобросовестный прокси. Надёжнее всего сравнить качество на своих задачах (экран «Сравнить модели»)."
+                lines.joinToString("\n")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                "Не удалось проверить: ${e.message ?: e}"
+            }
+            verifyText = text
+            verifyingId = null
+        }
+    }
+
+    class CompareEntry(val profile: Profile) {
+        var text by mutableStateOf("")
+        var done by mutableStateOf(false)
+        var error by mutableStateOf<String?>(null)
+        var ms by mutableStateOf(0L)
+        var inTok by mutableStateOf(0)
+        var outTok by mutableStateOf(0)
+        var served by mutableStateOf("")
+    }
+
+    val compare = mutableStateListOf<CompareEntry>()
+
+    fun runCompare(prompt: String, ids: List<String>) {
+        val p = prompt.trim().ifEmpty { return }
+        compare.clear()
+        for (pr in profiles.filter { it.id in ids }) {
+            val e = CompareEntry(pr)
+            compare += e
+            scope.launch(Dispatchers.IO) {
+                val t0 = System.currentTimeMillis()
+                try {
+                    val r = makeLlm(profileSettings(pr), pr.model).complete(
+                        "Answer helpfully and concisely.", listOf(Message("user", listOf(Block.Text(p)))), emptyList(),
+                    ) { delta -> e.text += delta }
+                    e.inTok = r.inputTokens; e.outTok = r.outputTokens; e.served = r.servedModel
+                } catch (ex: kotlinx.coroutines.CancellationException) {
+                    throw ex
+                } catch (ex: Throwable) {
+                    e.error = ex.message ?: ex.toString()
+                }
+                e.ms = System.currentTimeMillis() - t0
+                e.done = true
+            }
         }
     }
 
