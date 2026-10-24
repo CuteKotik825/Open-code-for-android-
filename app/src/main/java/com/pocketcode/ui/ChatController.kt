@@ -1331,6 +1331,65 @@ class ChatController(private val app: Application) {
     }
 
 
+
+    // ---------- терминал и git-экран (ручное управление) ----------
+
+    class TermEntry(val cmd: String) {
+        var out by mutableStateOf("")
+        var done by mutableStateOf(false)
+    }
+
+    val term = mutableStateListOf<TermEntry>()
+    var termJob: kotlinx.coroutines.Job? = null
+    val termBusy: Boolean get() = termJob?.isActive == true
+
+    fun termRun(cmd: String) {
+        val c = cmd.trim().ifEmpty { return }
+        if (termBusy) return
+        val e = TermEntry(c)
+        term += e
+        while (term.size > 60) term.removeAt(0)
+        termJob = scope.launch {
+            e.out = try {
+                Secrets.mask(withContext(Dispatchers.IO) { shell.run(c, workspace.root, 120) }.take(60_000))
+            } catch (x: kotlinx.coroutines.CancellationException) {
+                "(остановлено)"
+            } catch (x: Throwable) {
+                "Ошибка: ${x.message ?: x}"
+            }
+            e.done = true
+        }
+    }
+
+    fun termStop() { termJob?.cancel() }
+
+    var gitOut by mutableStateOf("")
+        private set
+    var gitBusy by mutableStateOf(false)
+        private set
+
+    fun gitRun(action: String, vararg args: Pair<String, String>) {
+        if (gitBusy) return
+        gitBusy = true
+        scope.launch {
+            val input = kotlinx.serialization.json.buildJsonObject {
+                put("action", kotlinx.serialization.json.JsonPrimitive(action))
+                for ((k, v) in args) {
+                    if (k == "create") put(k, kotlinx.serialization.json.JsonPrimitive(v.toBoolean()))
+                    else put(k, kotlinx.serialization.json.JsonPrimitive(v))
+                }
+            }
+            gitOut = try {
+                Secrets.mask(withContext(Dispatchers.IO) { GitTool(workspace, homeDir) { settings }.run(input) })
+            } catch (x: kotlinx.coroutines.CancellationException) {
+                throw x
+            } catch (x: Throwable) {
+                "Ошибка: ${x.message ?: x}"
+            }
+            gitBusy = false
+        }
+    }
+
     // ---------- инспектор контекста ----------
 
     var historyVersion by mutableIntStateOf(0)

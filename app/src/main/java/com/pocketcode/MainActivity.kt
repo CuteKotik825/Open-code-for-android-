@@ -40,7 +40,7 @@ import com.pocketcode.ui.ProjectsScreen
 import com.pocketcode.ui.SessionsScreen
 import com.pocketcode.ui.SettingsScreen
 
-private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT }
+private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT }
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
@@ -120,6 +120,8 @@ class MainActivity : ComponentActivity() {
                                 onOpenProjects = { screen = Screen.PROJECTS },
                                 onOpenFiles = { screen = Screen.FILES },
                                 onOpenContext = { screen = Screen.CONTEXT },
+                                onOpenTerminal = { screen = Screen.TERMINAL },
+                                onOpenGit = { screen = Screen.GIT },
                                 onExport = { exportMd.launch("chat-" + vm.currentProject + ".md") },
                                 onPickFolder = {
                                     pickFolderFresh = true
@@ -156,6 +158,14 @@ class MainActivity : ComponentActivity() {
                             onOpenCompare = { screen = Screen.COMPARE },
                             onBack = { screen = Screen.CHAT },
                         )
+                    }
+                    Screen.TERMINAL -> {
+                        BackHandler { screen = Screen.CHAT }
+                        com.pocketcode.ui.TerminalScreen(vm, onBack = { screen = Screen.CHAT })
+                    }
+                    Screen.GIT -> {
+                        BackHandler { screen = Screen.CHAT }
+                        com.pocketcode.ui.GitScreen(vm, onBack = { screen = Screen.CHAT })
                     }
                     Screen.CONTEXT -> {
                         BackHandler { screen = Screen.CHAT }

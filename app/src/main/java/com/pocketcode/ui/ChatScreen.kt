@@ -66,6 +66,8 @@ fun ChatScreen(
     onPickFolder: () -> Unit,
     onOpenContext: () -> Unit = {},
     onExport: () -> Unit = {},
+    onOpenTerminal: () -> Unit = {},
+    onOpenGit: () -> Unit = {},
 ) {
     var showNewChat by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
@@ -132,6 +134,8 @@ fun ChatScreen(
                     Box {
                         TextButton(onClick = { moreMenu = true }) { Text("⋮") }
                         DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
+                            DropdownMenuItem(text = { Text("Терминал") }, onClick = { moreMenu = false; onOpenTerminal() })
+                            DropdownMenuItem(text = { Text("Git") }, onClick = { moreMenu = false; onOpenGit() })
                             DropdownMenuItem(text = { Text("Что в контексте") }, onClick = { moreMenu = false; onOpenContext() })
                             DropdownMenuItem(text = { Text("Экспорт чата в Markdown") }, onClick = { moreMenu = false; onExport() })
                         }
