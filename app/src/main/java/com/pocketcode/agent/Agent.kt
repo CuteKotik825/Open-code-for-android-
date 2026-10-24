@@ -32,7 +32,7 @@ sealed class AgentEvent {
     object StepLimit : AgentEvent()
 
     /** Расход токенов за один ответ модели. */
-    data class Usage(val input: Int, val output: Int, val cached: Int) : AgentEvent()
+    data class Usage(val input: Int, val output: Int, val cached: Int, val viaFallback: Boolean = false) : AgentEvent()
 }
 
 private const val MAX_TOOL_OUTPUT = 30_000
@@ -184,7 +184,7 @@ class Agent(
             }
             overflowRetried = false
             if (response.inputTokens + response.outputTokens > 0) {
-                send(AgentEvent.Usage(response.inputTokens, response.outputTokens, response.cachedTokens))
+                send(AgentEvent.Usage(response.inputTokens, response.outputTokens, response.cachedTokens, usedFallback))
             }
             history += Message("assistant", response.blocks)
             send(AgentEvent.TextEnd)

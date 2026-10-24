@@ -1665,7 +1665,7 @@ class ChatController(
         profileUsage.entries.filter { it.key.endsWith("|$profileId") }
             .map { it.key.substringBefore('|') to it.value[0] + it.value[1] }.sortedByDescending { it.first }.take(6)
 
-    private fun recordUsage(input: Int, output: Int, cached: Int) {
+    private fun recordUsage(input: Int, output: Int, cached: Int, profileId: String = activeProfileId) {
         // Несколько вкладок пишут в одно хранилище: сначала подхватываем чужие записи
         usage.clear(); usage.putAll(settingsStore.loadUsage())
         runCatching {
@@ -1673,7 +1673,7 @@ class ChatController(
             profileUsage.putAll(kotlinx.serialization.json.Json.decodeFromString<Map<String, List<Long>>>(settingsStore.rawGet("profileUsage") ?: "{}"))
         }
         run {
-            val pk = monthKey() + "|" + activeProfileId
+            val pk = monthKey() + "|" + profileId
             val o = profileUsage[pk] ?: listOf(0L, 0L, 0L, 0L)
             profileUsage[pk] = listOf(o[0] + input, o[1] + output, o[2] + cached, o[3] + 1)
             if (profileUsage.size > 240) profileUsage.keys.sorted().take(profileUsage.size - 200).forEach { profileUsage.remove(it) }
@@ -1989,7 +1989,7 @@ class ChatController(
                 Notifier.updateWorking(app, "Агент работает…")
                 persist()
             }
-            is AgentEvent.Usage -> recordUsage(event.input, event.output, event.cached)
+            is AgentEvent.Usage -> recordUsage(event.input, event.output, event.cached, if (event.viaFallback) settings.fallbackProfileId.ifBlank { activeProfileId } else activeProfileId)
             is AgentEvent.StepLimit -> {
                 streamingIndex = null
                 limitHit = true
