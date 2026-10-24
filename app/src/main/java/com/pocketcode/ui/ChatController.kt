@@ -1676,7 +1676,7 @@ class ChatController(
             val o = profileUsage[pk] ?: listOf(0L, 0L, 0L, 0L)
             profileUsage[pk] = listOf(o[0] + input, o[1] + output, o[2] + cached, o[3] + 1)
             if (profileUsage.size > 240) profileUsage.keys.sorted().take(profileUsage.size - 200).forEach { profileUsage.remove(it) }
-            settingsStore.rawPut("profileUsage", kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.builtins.MapSerializer(kotlinx.serialization.builtins.serializer<String>(), kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.builtins.serializer<Long>())), profileUsage.toMap()))
+            settingsStore.rawPut("profileUsage", kotlinx.serialization.json.Json.encodeToString<Map<String, List<Long>>>(profileUsage.toMap()))
         }
         val key = dayKey() + "|" + currentProject
         val old = usage[key] ?: listOf(0L, 0L, 0L, 0L)
