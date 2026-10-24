@@ -20,5 +20,7 @@ val PROVIDER_TEMPLATES = listOf(
     ProviderTemplate("Gemini", Provider.OPENAI, "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash", 200_000, 0, "Бесплатный ключ в Google AI Studio (есть дневной лимит)."),
     ProviderTemplate("Groq", Provider.OPENAI, "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile", 32_000, 8_000, "Быстро и есть бесплатный уровень, но маленькие лимиты по токенам."),
     ProviderTemplate("Mistral", Provider.OPENAI, "https://api.mistral.ai/v1", "mistral-large-latest", 128_000, 0, "Ключ с console.mistral.ai."),
+    ProviderTemplate("NVIDIA NIM", Provider.OPENAI, "https://integrate.api.nvidia.com/v1", "meta/llama-3.3-70b-instruct", 64_000, 4_000, "Бесплатный ключ на build.nvidia.com (нужна регистрация). Много открытых моделей, лимит запросов в минуту."),
+    ProviderTemplate("OpenRouter (бесплатные)", Provider.OPENAI, "https://openrouter.ai/api/v1", "deepseek/deepseek-chat-v3.1:free", 64_000, 4_000, "Бесплатные модели с суффиксом :free, список на openrouter.ai/models?q=free. Дневной лимит запросов."),
     ProviderTemplate("Локальный (Ollama)", Provider.OPENAI, "http://192.168.1.10:11434/v1", "qwen2.5-coder:14b", 32_000, 4_000, "Модель на твоём ПК в той же Wi-Fi сети. Замени адрес на адрес ПК. Ключ любой.", "ollama"),
 )

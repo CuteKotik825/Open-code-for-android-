@@ -2001,7 +2001,7 @@ class ChatController(
                 if (!appVisible) Notifier.alert(app, "Агент остановился: ошибка", event.message.take(200))
                 lastRunFailed = true
                 streamingIndex = null
-                items += UiItem.Error(event.message)
+                items += UiItem.Error(event.message + errorHint(event.message))
             }
             is AgentEvent.Notice -> {
                 streamingIndex = null
@@ -2050,6 +2050,19 @@ class ChatController(
         } finally {
             approval = null
             Notifier.clearAlert(app)
+        }
+    }
+
+    /** Понятная подсказка к частым ошибкам API. */
+    private fun errorHint(m: String): String {
+        val l = m.lowercase()
+        return when {
+            "freetiererror" in l || "free tier can only" in l ->
+                "\n\n💡 Бесплатный тариф OpenCode работает только внутри самого приложения OpenCode, по API его не отдают. Возьми ключ другого провайдера: в настройках → «Шаблоны провайдеров» есть бесплатные варианты (Gemini, OpenRouter с моделями :free, Groq, NVIDIA)."
+            l.startsWith("http 404") -> "\n\n💡 404: проверь базовый URL (для OpenAI-совместимых обычно заканчивается на /v1) и имя модели."
+            l.startsWith("http 401") || "invalid api key" in l -> "\n\n💡 Ключ не принят: проверь, что он вставлен целиком и относится к этому провайдеру."
+            l.startsWith("http 429") -> "\n\n💡 Лимит запросов или квоты. Подожди или настрой резервный профиль."
+            else -> ""
         }
     }
 
