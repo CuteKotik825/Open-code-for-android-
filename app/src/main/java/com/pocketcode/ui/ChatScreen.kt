@@ -4,6 +4,9 @@ import androidx.compose.foundation.gestures.scrollBy
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -165,21 +168,27 @@ fun ChatScreen(
             }
             if (vm.contextUsed > 0) {
                 val limit = vm.effectiveContext.coerceAtLeast(1)
-                fun k(n: Int) = if (n >= 1000) "${n / 1000} тыс." else "$n"
-                Column(Modifier.fillMaxWidth().clickable { onOpenContext() }.padding(horizontal = 12.dp, vertical = 2.dp)) {
+                val frac = (vm.contextUsed.toFloat() / limit).coerceIn(0f, 1f)
+                fun k(n: Int) = if (n >= 1000) "${n / 1000}к" else "$n"
+                Row(
+                    Modifier.fillMaxWidth().clickable { onOpenContext() }.padding(horizontal = 16.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     LinearProgressIndicator(
-                        progress = { (vm.contextUsed.toFloat() / limit).coerceIn(0f, 1f) },
-                        modifier = Modifier.fillMaxWidth(),
+                        progress = { frac },
+                        modifier = Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp)),
+                        color = if (frac > 0.85f) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                     )
                     Text(
-                        "Контекст ≈ ${k(vm.contextUsed)} из ${k(limit)} токенов (оценка)" + (if (vm.settings.ecoMode) " · эко" else "") + " · нажми, чтобы посмотреть",
+                        "  ${k(vm.contextUsed)}/${k(limit)}" + (if (vm.settings.ecoMode) " · эко" else ""),
                         style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (vm.items.isEmpty()) {
-                    EmptyHint(vm.workspacePath)
+                    EmptyHint(vm.workspacePath) { input = it }
                 } else {
                     LazyColumn(
                         state = listState,
@@ -328,52 +337,48 @@ fun ChatScreen(
                     TextButton(onClick = { vm.removeImage(vm.pendingImages.lastIndex) }) { Text("Убрать последнюю") }
                 }
             }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(8.dp),
-                verticalAlignment = Alignment.Bottom,
+            androidx.compose.material3.Surface(
+                tonalElevation = 3.dp,
+                shape = RoundedCornerShape(28.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             ) {
-                TextButton(onClick = { pickImage.launch("image/*") }, enabled = !vm.running, contentPadding = PaddingValues(horizontal = 4.dp)) { Text("🖼") }
-                TextButton(
-                    onClick = {
-                        val i = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                            putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                            putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Говори задачу")
-                        }
-                        try { voice.launch(i) } catch (e: Exception) {
-                            android.widget.Toast.makeText(ctx, "На телефоне нет сервиса распознавания речи", android.widget.Toast.LENGTH_LONG).show()
-                        }
-                    },
-                    contentPadding = PaddingValues(horizontal = 4.dp),
-                ) { Text("🎤") }
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("Опиши задачу…") },
-                    maxLines = 6,
-                )
-                Spacer(Modifier.width(8.dp))
-                if (vm.running) {
-                    IconButton(
-                        onClick = {
-                            vm.enqueue(input)
-                            input = ""
-                        },
-                        enabled = input.isNotBlank(),
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "В очередь")
+                Row(Modifier.padding(start = 4.dp, end = 4.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.Bottom) {
+                    Column {
+                        IconButton(onClick = { pickImage.launch("image/*") }, enabled = !vm.running) { Text("🖼") }
                     }
-                } else {
-                    IconButton(
-                        onClick = {
-                            vm.send(input)
-                            input = ""
-                        },
-                        enabled = input.isNotBlank() || vm.pendingImages.isNotEmpty(),
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Отправить")
+                    androidx.compose.material3.TextField(
+                        value = input,
+                        onValueChange = { input = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("Опиши задачу…") },
+                        maxLines = 6,
+                        colors = androidx.compose.material3.TextFieldDefaults.colors(
+                            focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                            unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                            focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                        ),
+                    )
+                    if (input.isBlank() && vm.pendingImages.isEmpty()) {
+                        IconButton(onClick = {
+                            val i = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Говори задачу")
+                            }
+                            try { voice.launch(i) } catch (e: Exception) {
+                                android.widget.Toast.makeText(ctx, "На телефоне нет сервиса распознавания речи", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        }) { Text("🎤") }
+                    } else {
+                        androidx.compose.material3.FilledIconButton(
+                            onClick = {
+                                if (vm.running) vm.enqueue(input) else vm.send(input)
+                                input = ""
+                            },
+                            enabled = input.isNotBlank() || (!vm.running && vm.pendingImages.isNotEmpty()),
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = if (vm.running) "В очередь" else "Отправить")
+                        }
                     }
                 }
             }
@@ -485,26 +490,44 @@ fun ChatScreen(
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun EmptyHint(workspacePath: String) {
+private fun EmptyHint(workspacePath: String, onPick: (String) -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
         verticalArrangement = Arrangement.Center,
     ) {
-        Text("Опиши задачу, и агент возьмётся за работу.", style = MaterialTheme.typography.titleMedium)
+        Text("Что будем делать?", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Он читает и правит файлы, запускает команды и работает с git в рабочей папке. " +
-                "Например: «склонируй github.com/user/repo и исправь ошибку в README».",
+            "Агент читает и правит файлы, запускает команды и работает с git прямо на телефоне.",
             style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(top = 8.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
         )
+        androidx.compose.foundation.layout.FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf(
+                "🔍 Разберись в проекте" to "Изучи проект и коротко опиши его структуру и как его запускать.",
+                "🐞 Найди ошибки" to "Проверь проект на ошибки и исправь найденное. Перед правками перечисли, что собираешься менять.",
+                "🧪 Напиши тесты" to "Напиши тесты для основных функций проекта и запусти их.",
+                "🤖 Telegram-бот" to "Создай простого Telegram-бота на aiogram 3 с командами /start и /help. Токен читай из переменной окружения BOT_TOKEN.",
+                "🌐 Сайт" to "Сделай простую адаптивную страницу index.html и открой превью.",
+                "📝 README" to "Напиши README.md для этого проекта.",
+            ).forEach { (title, text) ->
+                androidx.compose.material3.SuggestionChip(onClick = { onPick(text) }, label = { Text(title) })
+            }
+        }
         Text(
-            "Рабочая папка:\n$workspacePath",
-            style = MaterialTheme.typography.bodySmall,
+            "Рабочая папка: $workspacePath",
+            style = MaterialTheme.typography.labelSmall,
             fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(top = 16.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 24.dp),
         )
     }
 }
@@ -515,6 +538,7 @@ private fun ItemView(item: UiItem) {
         is UiItem.User -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 4.dp),
                 modifier = Modifier.fillMaxWidth(0.85f),
             ) {
                 SelectionContainer {
@@ -536,13 +560,14 @@ private fun ItemView(item: UiItem) {
                     containerColor = if (item.isError) MaterialTheme.colorScheme.errorContainer
                     else MaterialTheme.colorScheme.surfaceVariant,
                 ),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { expanded = !expanded },
             ) {
-                Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                     Text(
-                        (if (expanded) "▾ " else "▸ ") + item.name + "  " + item.description.trim(),
+                        (if (expanded) "▾ " else "▸ ") + toolIcon(item.name) + " " + item.name + "  " + item.description.trim(),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 12.sp,
                         maxLines = if (expanded) Int.MAX_VALUE else 1,
@@ -580,12 +605,14 @@ private fun ItemView(item: UiItem) {
             item.text,
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp),
+                .padding(vertical = 6.dp, horizontal = 12.dp),
         )
         is UiItem.Error -> Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+            shape = RoundedCornerShape(14.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
             SelectionContainer {
@@ -593,4 +620,18 @@ private fun ItemView(item: UiItem) {
             }
         }
     }
+}
+
+private fun toolIcon(name: String): String = when (name) {
+    "read_file", "list_dir" -> "📄"
+    "write_file", "edit_file" -> "✏️"
+    "bash", "bg" -> "⌨️"
+    "python" -> "🐍"
+    "git", "github" -> "🌿"
+    "grep", "code_search" -> "🔍"
+    "web_search", "web_fetch" -> "🌐"
+    "run_tests" -> "🧪"
+    "task", "spawn", "worker_result" -> "🧩"
+    "todo", "present_plan" -> "📋"
+    else -> "🔧"
 }

@@ -342,8 +342,16 @@ private fun AppTheme(content: @Composable () -> Unit) {
     val scheme = when {
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
             if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        dark -> darkColorScheme()
-        else -> lightColorScheme()
+        dark -> darkColorScheme(
+            primary = androidx.compose.ui.graphics.Color(0xFF8AB4F8),
+            primaryContainer = androidx.compose.ui.graphics.Color(0xFF1F3A5F),
+            surface = androidx.compose.ui.graphics.Color(0xFF121418),
+            background = androidx.compose.ui.graphics.Color(0xFF121418),
+        )
+        else -> lightColorScheme(
+            primary = androidx.compose.ui.graphics.Color(0xFF2F5DA8),
+            primaryContainer = androidx.compose.ui.graphics.Color(0xFFD9E5FA),
+        )
     }
     val st = (context.applicationContext as PocketCodeApp).controller.settings
     val d = androidx.compose.ui.platform.LocalDensity.current
