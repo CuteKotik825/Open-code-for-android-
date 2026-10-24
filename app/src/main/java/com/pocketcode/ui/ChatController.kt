@@ -21,6 +21,7 @@ import com.pocketcode.SettingsStore
 import com.pocketcode.agent.Agent
 import com.pocketcode.llm.Block
 import com.pocketcode.Secrets
+import kotlinx.serialization.encodeToString
 import com.pocketcode.CatalogItem
 import com.pocketcode.PROJECT_TEMPLATES
 import com.pocketcode.tools.NotesTool
