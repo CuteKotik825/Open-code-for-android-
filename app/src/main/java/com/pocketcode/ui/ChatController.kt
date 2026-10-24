@@ -347,6 +347,9 @@ class ChatController(private val app: Application) {
         Secrets.known = profiles.map { it.apiKey } + settings.githubToken
     }
 
+    /** Реальный предел контекста: в эко-режиме не больше 64 000. */
+    val effectiveContext: Int get() = if (settings.ecoMode) minOf(settings.contextTokens, 64_000) else settings.contextTokens
+
     fun profileSettings(p: Profile): Settings = settings.copy(
         provider = p.provider, baseUrl = p.baseUrl, model = p.model, apiKey = p.apiKey,
         contextTokens = if (p.contextTokens > 0) p.contextTokens else settings.contextTokens,
@@ -1148,7 +1151,7 @@ class ChatController(private val app: Application) {
                 }
                 val rel = workspace.rel(f)
                 val sb = StringBuilder()
-                for (line in settings.fileHooks.lines()) {
+                for (line in (settings.fileHooks + "\n" + runCatching { File(workspace.root, ".pocketcode/hooks.txt").readText() }.getOrDefault("")).lines()) {
                     val i = line.indexOf("=>")
                     if (i <= 0) continue
                     val glob = line.substring(0, i).trim()
@@ -1323,6 +1326,133 @@ class ChatController(private val app: Application) {
             appendLine("Журнал (последние события):")
             append(AppLog.tail(60))
         }
+    }
+
+
+    // ---------- инспектор контекста ----------
+
+    var historyVersion by mutableIntStateOf(0)
+        private set
+
+    class CtxRow(val index: Int, val role: String, val label: String, val tokens: Int, val canTrim: Boolean, val canCut: Boolean)
+
+    fun contextRows(): List<CtxRow> {
+        historyVersion // подписка на изменения
+        return history.mapIndexed { i, m ->
+            val tokens = Compactor.estimateTokens(listOf(m))
+            val tr = m.blocks.filterIsInstance<Block.ToolResult>()
+            val text = m.blocks.filterIsInstance<Block.Text>().joinToString(" ") { it.text }
+            val tu = m.blocks.filterIsInstance<Block.ToolUse>().joinToString(", ") { it.name }
+            val label = when {
+                tr.isNotEmpty() -> "Результат: " + tr.first().content.take(70).replace('\n', ' ')
+                tu.isNotEmpty() -> "Вызов: $tu" + if (text.isNotBlank()) " · " + text.take(50).replace('\n', ' ') else ""
+                else -> text.take(90).replace('\n', ' ').ifEmpty { "(вложение)" }
+            }
+            CtxRow(
+                i, if (m.role == "user") "вы" else "модель", label, tokens,
+                canTrim = tr.any { it.content.length > 600 },
+                canCut = i > 0 && m.role == "user" && tr.isEmpty() && m.blocks.any { it is Block.Text },
+            )
+        }
+    }
+
+    fun trimContext(i: Int, keep: Int = 400) {
+        if (running || i !in history.indices) return
+        val m = history[i]
+        history[i] = m.copy(blocks = m.blocks.map { b ->
+            if (b is Block.ToolResult && b.content.length > keep + 200) b.copy(content = b.content.take(keep) + "\n...[сокращено пользователем]") else b
+        })
+        agent = null
+        historyVersion++
+        contextUsed = Compactor.estimateTokens(history)
+        persist()
+    }
+
+    /** Все самые тяжёлые результаты инструментов разом. */
+    fun trimAllHeavy() {
+        if (running) return
+        history.indices.forEach { if (history[it].blocks.any { b -> b is Block.ToolResult && b.content.length > 1200 }) trimContext(it, 300) }
+    }
+
+    fun forgetBefore(i: Int) {
+        if (running || i <= 0 || i >= history.size) return
+        repeat(i) { history.removeAt(0) }
+        agent = null
+        historyVersion++
+        contextUsed = Compactor.estimateTokens(history)
+        items += UiItem.Notice("— Модель забыла ранние сообщения (убрано: $i). На экране они остались —")
+        persist()
+    }
+
+    // ---------- экспорт чата ----------
+
+    fun exportMarkdown(uri: Uri) {
+        scope.launch(Dispatchers.IO) {
+            val md = StringBuilder("# Чат PocketCode — ${currentProject}\n\n")
+            for (it in items.toList()) when (it) {
+                is UiItem.User -> md.append("## 🧑 Вы\n\n").append(it.text).append("\n\n")
+                is UiItem.Assistant -> md.append("## 🤖 Модель\n\n").append(it.text).append("\n\n")
+                is UiItem.Tool -> {
+                    md.append("<details><summary>🔧 ").append(it.name).append(": ").append(it.description.take(120).replace('\n', ' ')).append(if (it.isError) " (ошибка)" else "").append("</summary>\n\n```\n")
+                    md.append((it.output ?: "").take(4000)).append("\n```\n</details>\n\n")
+                }
+                is UiItem.Error -> md.append("> ⚠️ ").append(it.text).append("\n\n")
+                is UiItem.Notice -> md.append("*").append(it.text).append("*\n\n")
+            }
+            val text = Secrets.mask(md.toString())
+            runCatching { app.contentResolver.openOutputStream(uri)?.use { o -> o.write(text.toByteArray()) } }
+                .onFailure { e -> withContext(Dispatchers.Main) { items += UiItem.Error("Не удалось сохранить файл: ${e.message}") } }
+                .onSuccess { withContext(Dispatchers.Main) { items += UiItem.Notice("— Чат сохранён в Markdown —") } }
+        }
+    }
+
+    // ---------- шаблоны проектов, автопроверки ----------
+
+    fun createProjectFromTemplate(rawName: String, templateId: String) {
+        createProject(rawName)
+        val t = PROJECT_TEMPLATES.firstOrNull { it.id == templateId } ?: return
+        if (currentProject != sanitize(rawName)) return
+        runCatching {
+            for ((path, text) in t.files) {
+                val f = File(workspace.root, path)
+                if (!f.exists()) { f.parentFile?.mkdirs(); f.writeText(text) }
+            }
+            agent = null
+        }
+    }
+
+    /** Подбирает автопроверки по файлам проекта и записывает их в .pocketcode/hooks.txt. */
+    fun detectHooks(): String {
+        val root = workspace.root
+        val names = root.walkTopDown().maxDepth(3).filter { it.isFile }.map { it.name }.toList()
+        fun has(vararg n: String) = names.any { it in n }
+        val lines = mutableListOf<String>()
+        val stack = mutableListOf<String>()
+        if (names.any { it.endsWith(".py") } || has("requirements.txt", "pyproject.toml")) { stack += "Python"; lines += "*.py => python3 -m py_compile {file}" }
+        if (has("package.json")) { stack += "Node"; lines += "*.js => node --check {file}"; lines += "*.json => python3 -m json.tool {file} > /dev/null" }
+        else if (names.any { it.endsWith(".json") }) lines += "*.json => python3 -m json.tool {file} > /dev/null"
+        if (names.any { it.endsWith(".sh") }) { stack += "Shell"; lines += "*.sh => bash -n {file}" }
+        if (has("go.mod")) { stack += "Go"; lines += "*.go => gofmt -l {file}" }
+        if (has("Cargo.toml")) stack += "Rust"
+        if (names.any { it.endsWith(".kt") } || has("build.gradle", "build.gradle.kts")) stack += "Kotlin/Gradle"
+        if (lines.isEmpty()) return "Не узнал стек: файлов с известными расширениями нет. Напиши хуки вручную в настройках."
+        val f = File(root, ".pocketcode/hooks.txt")
+        f.parentFile?.mkdirs()
+        f.writeText(lines.joinToString("\n") + "\n")
+        return "Стек: ${stack.joinToString(", ").ifEmpty { "общий" }}. Записал ${lines.size} автопроверок в .pocketcode/hooks.txt: после каждой правки файла агент сразу видит результат."
+    }
+
+    fun installCatalogItem(item: CatalogItem, global: Boolean) {
+        val base = if (global) extensions.globalDir else File(workspace.root, ".pocketcode")
+        val f = if (item.isSkill) File(base, "skills/${item.name}/SKILL.md") else File(base, "commands/${item.name}.md")
+        f.parentFile?.mkdirs()
+        f.writeText(item.content)
+        agent = null
+        refreshExtensions()
+    }
+
+    fun isInstalled(item: CatalogItem): Boolean {
+        return if (item.isSkill) skillList.any { it.name == item.name } else commandList.any { it.name == item.name }
     }
 
     // --- проверка и сравнение моделей ---
@@ -1804,6 +1934,7 @@ class ChatController(private val app: Application) {
     private fun ensureAgent(): Agent {
         agent?.let { return it }
         val s = settings
+        val ctxLimit = effectiveContext
         val llm: LlmClient = when (s.provider) {
             Provider.ANTHROPIC -> AnthropicClient(s.baseUrl, s.apiKey, s.model, s.promptCaching, s.maxOutputTokens)
             Provider.OPENAI -> OpenAiClient(s.baseUrl, s.apiKey, s.model, s.promptCaching, s.maxOutputTokens)
@@ -1833,7 +1964,7 @@ class ChatController(private val app: Application) {
         val explorer = SubagentTool(
             helper ?: llm,
             listOf(ReadFileTool(workspace), ListDirTool(workspace), GrepTool(workspace), WebSearchTool(), WebFetchTool()),
-            s.contextTokens,
+            ctxLimit,
         )
         val devTools: List<Tool> = listOf(
             BgTool(workspace, shell, bgProcs),
@@ -1884,7 +2015,7 @@ class ChatController(private val app: Application) {
                 system = sysPrompt + "\nYou are a parallel worker started by the main agent. Do only the task you were given, touch only the files it names, " +
                     "and finish with a short report of what you changed." + promptNote,
                 autoApprove = s.autoApprove,
-                contextLimit = s.contextTokens,
+                contextLimit = ctxLimit,
                 maxSteps = if (s.maxSteps == 0) 0 else s.maxSteps * 2,
                 approve = { t, d -> requestApproval(t, d) },
             ) to finish
@@ -1894,11 +2025,12 @@ class ChatController(private val app: Application) {
             tools = tools + listOf(SpawnTool(workers, workerFactory), WorkerResultTool(workers)),
             system = sysPrompt,
             autoApprove = s.autoApprove,
-            contextLimit = s.contextTokens,
+            contextLimit = ctxLimit,
             maxSteps = s.maxSteps,
             hooks = agentHooks,
             fallbackLlm = makeFallback(s),
             helperLlm = helper,
+            eco = s.ecoMode,
             approve = ::requestApproval,
             history = history,
             pollNotes = { generateSequence { notes.poll() }.toList() },

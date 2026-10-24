@@ -75,6 +75,7 @@ fun SettingsScreen(
     var fontScale by remember { mutableStateOf(initial.fontScale) }
     var compactUi by remember { mutableStateOf(initial.compactUi) }
     var showTemplates by remember { mutableStateOf(false) }
+    var hooksMsg by remember { mutableStateOf<String?>(null) }
 
     // Профили ключей: форма ниже всегда редактирует активный профиль
     var profiles by remember { mutableStateOf(vm.profiles) }
@@ -304,7 +305,7 @@ fun SettingsScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Компактный вид")
-                    Text("Меньше отступов в чате, влезает больше текста.", style = MaterialTheme.typography.bodySmall)
+                    Text("Весь интерфейс на 10% мельче: влезает больше текста.", style = MaterialTheme.typography.bodySmall)
                 }
                 Switch(checked = compactUi, onCheckedChange = { compactUi = it })
             }
@@ -368,6 +369,8 @@ fun SettingsScreen(
                     "deny — запретить, ask — всегда спрашивать, allow — не спрашивать (root и режим плана это не отменяет).",
                 style = MaterialTheme.typography.bodySmall,
             )
+            OutlinedButton(onClick = { hooksMsg = vm.detectHooks() }, modifier = Modifier.fillMaxWidth()) { Text("Подобрать автопроверки для проекта") }
+            hooksMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             OutlinedTextField(
                 value = fileHooks,
                 onValueChange = { fileHooks = it },

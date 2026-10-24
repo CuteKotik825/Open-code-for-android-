@@ -58,15 +58,34 @@ fun PluginsScreen(vm: ChatController, onBack: () -> Unit) {
         ) {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Как это работает", style = MaterialTheme.typography.titleSmall)
+                    Text("Как этим пользоваться", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "• Файл AGENTS.md (или CLAUDE.md) в корне проекта агент читает сам в начале чата: стек, правила, как запускать тесты.\n" +
-                            "• Навык — папка skills/имя/SKILL.md с полями name и description. Агент видит только описания и подгружает навык, когда он нужен.\n" +
-                            "• Команда — файл commands/имя.md. В чате пишешь /имя текст, и файл уходит агенту (\$ARGUMENTS заменяется на твой текст).\n" +
-                            "• Папки ищутся в .pocketcode/ и .claude/ проекта, в общей папке приложения и в плагинах.\n" +
-                            "• Плагин — любой GitHub-репозиторий с такими папками.",
+                        "КОМАНДА — это заготовка запроса, которую ты запускаешь сам. В чате напиши /review или /tests файл.py, и текст команды уйдет агенту. " +
+                            "Всё, что ты допишешь после команды, подставится вместо \$ARGUMENTS. Список команд появляется, когда в поле ввода набираешь /.\n\n" +
+                            "НАВЫК — это правила и знания, которые агент подключает сам, когда задача подходит под описание. Ты ничего не вызываешь: " +
+                            "например, навык «Telegram-боты» сработает, когда попросишь написать бота. Агент видит только короткие описания, а полный текст читает при необходимости, поэтому навыки почти не тратят токены.\n\n" +
+                            "ПЛАГИН — любой репозиторий GitHub, где лежат папки skills/ и commands/. Вставь ссылку в разделе «Плагины» ниже, и всё из него станет доступно.\n\n" +
+                            "AGENTS.md в корне проекта агент читает в начале каждого чата: что за проект, как запускать, какие правила. Это самый простой способ «научить» агента проекту.\n\n" +
+                            "ГДЕ ЛЕЖАТ: «Для проекта» — папка .pocketcode/ внутри проекта, «Для всех» — общая папка приложения. " +
+                            "Быстрый старт: поставь что-нибудь из каталога ниже и сразу пробуй в чате.",
                         style = MaterialTheme.typography.bodySmall,
                     )
+                }
+            }
+
+            Text("Каталог готовых", style = MaterialTheme.typography.titleMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Ставить для всех проектов", Modifier.weight(1f))
+                androidx.compose.material3.Switch(checked = global, onCheckedChange = { global = it })
+            }
+            com.pocketcode.SKILL_CATALOG.forEach { item ->
+                val have = vm.isInstalled(item)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text((if (item.isSkill) "Навык · " else "Команда /${item.name} · ") + item.title, style = MaterialTheme.typography.titleSmall)
+                        Text(item.about, style = MaterialTheme.typography.bodySmall)
+                    }
+                    OutlinedButton(onClick = { vm.installCatalogItem(item, global) }, enabled = !have) { Text(if (have) "Есть" else "Поставить") }
                 }
             }
 

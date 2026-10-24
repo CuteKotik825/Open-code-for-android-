@@ -58,6 +58,8 @@ class Agent(
     private val fallbackLlm: LlmClient? = null,
     /** Дешёвая модель для сводок контекста. */
     helperLlm: LlmClient? = null,
+    /** Эко-режим: старые выводы инструментов урезаются быстрее. */
+    private val eco: Boolean = false,
 ) {
     private var llm: LlmClient = llm
     private var usedFallback = false
@@ -140,7 +142,7 @@ class Agent(
                 break
             }
             injectNotes(pollNotes())
-            compactor.maskOld(history)
+            if (eco) compactor.maskOld(history, keepRecent = 6, over = 1200, keep = 300) else compactor.maskOld(history)
             if (compactor.needsCompaction(history)) {
                 try {
                     compactor.compact(history, force = false)?.let { send(AgentEvent.Notice(it)) }

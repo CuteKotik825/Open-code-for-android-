@@ -64,8 +64,11 @@ fun ChatScreen(
     onOpenProjects: () -> Unit,
     onOpenFiles: () -> Unit,
     onPickFolder: () -> Unit,
+    onOpenContext: () -> Unit = {},
+    onExport: () -> Unit = {},
 ) {
     var showNewChat by remember { mutableStateOf(false) }
+    var moreMenu by remember { mutableStateOf(false) }
     var newProjectName by remember { mutableStateOf("") }
     var profileMenu by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
@@ -126,6 +129,13 @@ fun ChatScreen(
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Настройки")
                     }
+                    Box {
+                        TextButton(onClick = { moreMenu = true }) { Text("⋮") }
+                        DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
+                            DropdownMenuItem(text = { Text("Что в контексте") }, onClick = { moreMenu = false; onOpenContext() })
+                            DropdownMenuItem(text = { Text("Экспорт чата в Markdown") }, onClick = { moreMenu = false; onExport() })
+                        }
+                    }
                 },
             )
         },
@@ -155,15 +165,15 @@ fun ChatScreen(
                 }
             }
             if (vm.contextUsed > 0) {
-                val limit = vm.settings.contextTokens.coerceAtLeast(1)
+                val limit = vm.effectiveContext.coerceAtLeast(1)
                 fun k(n: Int) = if (n >= 1000) "${n / 1000} тыс." else "$n"
-                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)) {
+                Column(Modifier.fillMaxWidth().clickable { onOpenContext() }.padding(horizontal = 12.dp, vertical = 2.dp)) {
                     LinearProgressIndicator(
                         progress = { (vm.contextUsed.toFloat() / limit).coerceIn(0f, 1f) },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Text(
-                        "Контекст ≈ ${k(vm.contextUsed)} из ${k(limit)} токенов (оценка)",
+                        "Контекст ≈ ${k(vm.contextUsed)} из ${k(limit)} токенов (оценка)" + (if (vm.settings.ecoMode) " · эко" else "") + " · нажми, чтобы посмотреть",
                         style = MaterialTheme.typography.labelSmall,
                     )
                 }

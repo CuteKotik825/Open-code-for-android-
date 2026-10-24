@@ -22,6 +22,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +48,7 @@ class FileActions(
 @Composable
 fun ProjectsScreen(vm: ChatController, actions: FileActions, onOpenDevices: () -> Unit, onOpenPlugins: () -> Unit, onOpenDiag: () -> Unit, onBack: () -> Unit) {
     var newName by remember { mutableStateOf("") }
+    var tpl by remember { mutableStateOf("empty") }
     var cloneUrl by remember { mutableStateOf("") }
     var toDelete by remember { mutableStateOf<String?>(null) }
 
@@ -329,9 +331,16 @@ fun ProjectsScreen(vm: ChatController, actions: FileActions, onOpenDevices: () -
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
+            Text("Шаблон", style = MaterialTheme.typography.labelLarge)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.pocketcode.PROJECT_TEMPLATES.forEach { t ->
+                    androidx.compose.material3.FilterChip(selected = tpl == t.id, onClick = { tpl = t.id }, label = { Text(t.title) })
+                }
+            }
+            Text(com.pocketcode.PROJECT_TEMPLATES.first { it.id == tpl }.about, style = MaterialTheme.typography.bodySmall)
             Button(
                 onClick = {
-                    vm.createProject(newName)
+                    vm.createProjectFromTemplate(newName, tpl)
                     if (vm.projectMessage == null) {
                         newName = ""
                         onBack()

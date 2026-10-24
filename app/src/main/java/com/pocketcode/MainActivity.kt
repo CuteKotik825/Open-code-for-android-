@@ -40,7 +40,7 @@ import com.pocketcode.ui.ProjectsScreen
 import com.pocketcode.ui.SessionsScreen
 import com.pocketcode.ui.SettingsScreen
 
-private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE }
+private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT }
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
@@ -86,6 +86,11 @@ class MainActivity : ComponentActivity() {
             if (uri != null) controller.exportZip(uri)
         }
 
+    private val exportMd =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
+            if (uri != null) controller.exportMarkdown(uri)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleIntent(intent)
@@ -114,6 +119,8 @@ class MainActivity : ComponentActivity() {
                                 onOpenSessions = { screen = Screen.SESSIONS },
                                 onOpenProjects = { screen = Screen.PROJECTS },
                                 onOpenFiles = { screen = Screen.FILES },
+                                onOpenContext = { screen = Screen.CONTEXT },
+                                onExport = { exportMd.launch("chat-" + vm.currentProject + ".md") },
                                 onPickFolder = {
                                     pickFolderFresh = true
                                     pickFolderAsProject.launch(null)
@@ -149,6 +156,10 @@ class MainActivity : ComponentActivity() {
                             onOpenCompare = { screen = Screen.COMPARE },
                             onBack = { screen = Screen.CHAT },
                         )
+                    }
+                    Screen.CONTEXT -> {
+                        BackHandler { screen = Screen.CHAT }
+                        com.pocketcode.ui.ContextScreen(vm, onBack = { screen = Screen.CHAT })
                     }
                     Screen.COMPARE -> {
                         BackHandler { screen = Screen.SETTINGS }
@@ -267,5 +278,13 @@ private fun AppTheme(content: @Composable () -> Unit) {
         dark -> darkColorScheme()
         else -> lightColorScheme()
     }
-    MaterialTheme(colorScheme = scheme, content = content)
+    val st = (context.applicationContext as PocketCodeApp).controller.settings
+    val d = androidx.compose.ui.platform.LocalDensity.current
+    val dens = androidx.compose.ui.unit.Density(
+        d.density * (if (st.compactUi) 0.9f else 1f),
+        d.fontScale * st.fontScale,
+    )
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides dens) {
+        MaterialTheme(colorScheme = scheme, content = content)
+    }
 }
