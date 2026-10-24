@@ -68,6 +68,7 @@ fun ChatScreen(
     onExport: () -> Unit = {},
     onOpenTerminal: () -> Unit = {},
     onOpenGit: () -> Unit = {},
+    onMenu: () -> Unit = {},
 ) {
     var showNewChat by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
@@ -120,16 +121,10 @@ fun ChatScreen(
                         Text("📁 " + vm.currentProject, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 },
+                navigationIcon = { IconButton(onClick = onMenu) { Text("☰", style = MaterialTheme.typography.titleLarge) } },
                 actions = {
-                    TextButton(onClick = onOpenFiles) { Text("Файлы") }
                     IconButton(onClick = { showNewChat = true }) {
                         Icon(Icons.Filled.Add, contentDescription = "Новый чат")
-                    }
-                    IconButton(onClick = onOpenSessions) {
-                        Icon(Icons.AutoMirrored.Filled.List, contentDescription = "История")
-                    }
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Настройки")
                     }
                     Box {
                         TextButton(onClick = { moreMenu = true }) { Text("⋮") }

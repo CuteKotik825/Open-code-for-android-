@@ -16,6 +16,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.padding
@@ -122,6 +124,42 @@ class MainActivity : ComponentActivity() {
                 } else when (screen) {
                     Screen.CHAT -> {
                         val chat: @Composable () -> Unit = {
+                          val drawer = androidx.compose.material3.rememberDrawerState(androidx.compose.material3.DrawerValue.Closed)
+                          val dScope = androidx.compose.runtime.rememberCoroutineScope()
+                          fun go(s: Screen) { dScope.launch { drawer.close() }; screen = s }
+                          androidx.compose.material3.ModalNavigationDrawer(
+                            drawerState = drawer,
+                            drawerContent = {
+                              androidx.compose.material3.ModalDrawerSheet {
+                                androidx.compose.foundation.layout.Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(vertical = 12.dp)) {
+                                  Text("PocketCode", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+                                  Text(vm.currentProject + " · " + vm.profileLabel, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 24.dp))
+                                  androidx.compose.material3.HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                                  listOf(
+                                    "💬 История чатов" to Screen.SESSIONS,
+                                    "📁 Проекты" to Screen.PROJECTS,
+                                    "🗂 Файлы" to Screen.FILES,
+                                    "⌨️ Терминал" to Screen.TERMINAL,
+                                    "🌿 Git" to Screen.GIT,
+                                    "🧠 Что в контексте" to Screen.CONTEXT,
+                                    "🧩 Навыки, команды, MCP" to Screen.PLUGINS,
+                                    "📱 Устройства" to Screen.DEVICES,
+                                    "📊 Диагностика и расход" to Screen.DIAG,
+                                    "⚖️ Сравнить модели" to Screen.COMPARE,
+                                    "⚙️ Настройки" to Screen.SETTINGS,
+                                  ).forEach { (title, target) ->
+                                    androidx.compose.material3.NavigationDrawerItem(
+                                      label = { Text(title) },
+                                      selected = false,
+                                      onClick = { go(target) },
+                                      modifier = Modifier.padding(horizontal = 12.dp),
+                                    )
+                                  }
+                                }
+                              }
+                            },
+                            gesturesEnabled = true,
+                          ) {
                           androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
                             TabBar(pocketApp)
                             androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
@@ -135,6 +173,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenContext = { screen = Screen.CONTEXT },
                                 onOpenTerminal = { screen = Screen.TERMINAL },
                                 onOpenGit = { screen = Screen.GIT },
+                                onMenu = { dScope.launch { drawer.open() } },
                                 onExport = { exportMd.launch("chat-" + vm.currentProject + ".md") },
                                 onPickFolder = {
                                     pickFolderFresh = true
@@ -143,6 +182,7 @@ class MainActivity : ComponentActivity() {
                             )
                             }
                             }
+                          }
                           }
                         }
                         if (wide) {
@@ -312,7 +352,16 @@ private fun AppTheme(content: @Composable () -> Unit) {
         d.fontScale * st.fontScale,
     )
     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides dens) {
-        MaterialTheme(colorScheme = scheme, content = content)
+        MaterialTheme(
+            colorScheme = scheme,
+            shapes = androidx.compose.material3.Shapes(
+                extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                small = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                medium = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                large = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+            ),
+            content = content,
+        )
     }
 }
 
