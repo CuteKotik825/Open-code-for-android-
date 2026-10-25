@@ -31,6 +31,7 @@ import com.pocketcode.AppLog
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.withLock
 import com.pocketcode.tools.GitHubTool
 import com.pocketcode.tools.SpawnTool
@@ -1879,6 +1880,51 @@ class ChatController(
         return if (end > i) text.substring(i, end + 1) else text.substring(i)
     }
 
+    /** Запускает команду в Linux и читает весь вывод (до 8 МБ), без обрезки, как у обычного терминала. */
+    private suspend fun runFull(cmd: String, timeoutSec: Long): String = withContext(Dispatchers.IO) {
+        val p = linuxShell.builder(cmd, workspace.root).redirectErrorStream(false).start()
+        p.outputStream.close()
+        val errDrain = Thread { runCatching { p.errorStream.copyTo(java.io.OutputStream.nullOutputStream()) } }.also { it.isDaemon = true; it.start() }
+        try {
+            kotlinx.coroutines.withTimeout(timeoutSec * 1000) {
+                val out = java.io.ByteArrayOutputStream()
+                val buf = ByteArray(16384)
+                val ins = p.inputStream
+                while (true) {
+                    val n = runInterruptible { ins.read(buf) }
+                    if (n < 0) break
+                    if (out.size() < 8_000_000) out.write(buf, 0, n)
+                }
+                out.toString("UTF-8")
+            }
+        } finally {
+            p.destroyForcibly()
+            errDrain.interrupt()
+        }
+    }
+
+    private fun collectTexts(el: kotlinx.serialization.json.JsonElement?, role: String?, out: MutableList<Pair<String?, String>>) {
+        when (el) {
+            is kotlinx.serialization.json.JsonObject -> {
+                val info = el["info"] as? kotlinx.serialization.json.JsonObject
+                val r = ((info?.get("role") ?: el["role"]) as? kotlinx.serialization.json.JsonPrimitive)?.content ?: role
+                val type = (el["type"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                val text = (el["text"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+                if (type == "text" && !text.isNullOrBlank()) {
+                    out += r to text
+                    return
+                }
+                if (type == "tool") {
+                    out += r to "🔧 " + ((el["tool"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "инструмент")
+                    return
+                }
+                for ((k, v) in el) if (k != "info") collectTexts(v, r, out)
+            }
+            is kotlinx.serialization.json.JsonArray -> el.forEach { collectTexts(it, role, out) }
+            else -> {}
+        }
+    }
+
     private fun fmtTime(e: kotlinx.serialization.json.JsonElement?): String {
         val p = e as? kotlinx.serialization.json.JsonPrimitive ?: return ""
         val n = p.content.toLongOrNull() ?: return p.content
@@ -1893,7 +1939,7 @@ class ChatController(
         ocSessionsMsg = "Загружаю список…"
         scope.launch {
             val raw = try {
-                withContext(Dispatchers.IO) { shell.run("opencode session list --format json -n 100 2>&1", workspace.root, 120) }
+                runFull("opencode session list --format json -n 100", 120)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -1944,35 +1990,24 @@ class ChatController(
         ocSessionsMsg = "Открываю беседу…"
         scope.launch {
             val raw = try {
-                withContext(Dispatchers.IO) { shell.run("opencode export '${s.id.replace("'", "")}' 2>/dev/null", workspace.root, 120) }
+                runFull("opencode export '${s.id.replace("'", "")}'", 180)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
                 ""
             }
             val shown = mutableListOf<UiItem>()
+            var parseNote = ""
             try {
-                val root = kotlinx.serialization.json.Json.parseToJsonElement(jsonStart(raw)) as kotlinx.serialization.json.JsonObject
-                val msgs = root["messages"] as? kotlinx.serialization.json.JsonArray
-                msgs?.forEach { m ->
-                    val mo = m as? kotlinx.serialization.json.JsonObject ?: return@forEach
-                    val role = ((mo["info"] as? kotlinx.serialization.json.JsonObject)?.get("role") as? kotlinx.serialization.json.JsonPrimitive)?.content
-                    val parts = mo["parts"] as? kotlinx.serialization.json.JsonArray ?: return@forEach
-                    val text = parts.mapNotNull { p ->
-                        val po = p as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
-                        when ((po["type"] as? kotlinx.serialization.json.JsonPrimitive)?.content) {
-                            "text" -> (po["text"] as? kotlinx.serialization.json.JsonPrimitive)?.content
-                            "tool" -> "🔧 " + ((po["tool"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "tool")
-                            else -> null
-                        }
-                    }.joinToString("\n").trim()
-                    if (text.isNotEmpty()) shown += if (role == "user") UiItem.User(Secrets.mask(text), 0) else UiItem.Assistant(Secrets.mask(text))
-                }
+                val texts = mutableListOf<Pair<String?, String>>()
+                collectTexts(kotlinx.serialization.json.Json.parseToJsonElement(jsonStart(raw)), null, texts)
+                for ((role, text) in texts) shown += if (role == "user") UiItem.User(Secrets.mask(text), 0) else UiItem.Assistant(Secrets.mask(text))
             } catch (e: Throwable) {
+                parseNote = "Не разобрал вывод opencode export (${e.javaClass.simpleName}). Начало ответа:\n" + Secrets.mask(raw.take(300))
             }
             items.clear()
             items += UiItem.Notice("— Беседа OpenCode: ${s.title}. Новые сообщения продолжат её —")
-            if (shown.isEmpty()) items += UiItem.Notice("(переписку показать не удалось, но беседа выбрана и продолжится)")
+            if (shown.isEmpty()) items += UiItem.Notice("(переписку показать не удалось, но беседа выбрана и продолжится)" + if (parseNote.isNotEmpty()) "\n$parseNote" else "\nОтвет opencode export (${raw.length} симв.): " + Secrets.mask(raw.take(300)))
             else items.addAll(shown.takeLast(80))
             if (currentId == null) currentId = UUID.randomUUID().toString()
             openCodeMode = true
