@@ -202,7 +202,10 @@ class ChatController(
     private val linuxEnv = LinuxEnv(app).also { it.noSeccomp = settingsStore.loadLinuxNoSeccomp() }
     private val androidShell = AndroidShell(homeDir)
     private val python = PythonRunner(app)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main.immediate +
+            kotlinx.coroutines.CoroutineExceptionHandler { _, e -> AppLog.log("ERROR", "Необработанная ошибка в фоне: " + e.javaClass.simpleName + ": " + (e.message ?: "")) },
+    )
 
     var settings by mutableStateOf(settingsStore.load())
         private set
@@ -1440,7 +1443,11 @@ class ChatController(
         val e = TermEntry(c)
         term += e
         while (term.size > 60) term.removeAt(0)
-        val real = if (tty && linuxActive) "script -qc '" + c.replace("'", "'\\''") + "' /dev/null" else c
+        val q = c.replace("'", "'\\''")
+        val real = if (tty && linuxActive) {
+            // В Alpine нет утилиты script, поэтому псевдотерминал создаём через Python (модуль pty)
+            "export TERM=xterm; python3 -c 'import pty,sys; pty.spawn([\"sh\",\"-c\",\"stty cols 80 rows 24 2>/dev/null; \"+sys.argv[1]])' '$q'"
+        } else c
         termJob = scope.launch {
             var proc: Process? = null
             val screen = Screen()
@@ -2228,6 +2235,7 @@ class ChatController(
                 val p = proc
                 val buf = StringBuilder()
                 val reader = launch(Dispatchers.IO) {
+                  try {
                     val br = p.inputStream.bufferedReader()
                     while (true) {
                         val line = br.readLine() ?: break
@@ -2237,6 +2245,9 @@ class ChatController(
                         val snapshot = buf.toString().takeLast(60_000)
                         withContext(Dispatchers.Main) { if (idx < items.size) items[idx] = UiItem.Assistant(snapshot) }
                     }
+                  } catch (e: java.io.IOException) {
+                    // Процесс остановлен: поток закрыт, это не ошибка
+                  }
                 }
                 try {
                     reader.join()
