@@ -1925,6 +1925,25 @@ class ChatController(
         }
     }
 
+    private val tokenRe = Regex("\"(role|type)\"\\s*:\\s*\"([^\"]*)\"|\"text\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
+
+    /** Запасной разбор: идёт по тексту подряд и берёт строки "text" у частей с "type": "text". */
+    private fun scanTexts(raw: String): List<Pair<String?, String>> {
+        val out = mutableListOf<Pair<String?, String>>()
+        var role: String? = null
+        var type: String? = null
+        for (m in tokenRe.findAll(raw)) {
+            val key = m.groupValues[1]
+            if (key == "role") { role = m.groupValues[2]; continue }
+            if (key == "type") { type = m.groupValues[2]; continue }
+            if (type == "text") {
+                val t = runCatching { kotlinx.serialization.json.Json.decodeFromString<String>("\"" + m.groupValues[3] + "\"") }.getOrNull()
+                if (!t.isNullOrBlank()) out += role to t
+            }
+        }
+        return out
+    }
+
     private fun fmtTime(e: kotlinx.serialization.json.JsonElement?): String {
         val p = e as? kotlinx.serialization.json.JsonPrimitive ?: return ""
         val n = p.content.toLongOrNull() ?: return p.content
@@ -2003,7 +2022,10 @@ class ChatController(
                 collectTexts(kotlinx.serialization.json.Json.parseToJsonElement(jsonStart(raw)), null, texts)
                 for ((role, text) in texts) shown += if (role == "user") UiItem.User(Secrets.mask(text), 0) else UiItem.Assistant(Secrets.mask(text))
             } catch (e: Throwable) {
-                parseNote = "Не разобрал вывод opencode export (${e.javaClass.simpleName}). Начало ответа:\n" + Secrets.mask(raw.take(300))
+                // Строгий разбор не удался (обрезанный или нестандартный JSON): вытаскиваем реплики по шаблону
+                val found = scanTexts(raw)
+                for ((role, text) in found) shown += if (role == "user") UiItem.User(Secrets.mask(text), 0) else UiItem.Assistant(Secrets.mask(text))
+                if (found.isEmpty()) parseNote = "Не разобрал вывод opencode export (${e.javaClass.simpleName}: ${(e.message ?: "").take(120)}). Размер ${raw.length} симв., конец:\n" + Secrets.mask(raw.takeLast(200))
             }
             items.clear()
             items += UiItem.Notice("— Беседа OpenCode: ${s.title}. Новые сообщения продолжат её —")
