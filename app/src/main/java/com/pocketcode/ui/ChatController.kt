@@ -337,6 +337,7 @@ class ChatController(
     private var streamingIndex: Int? = null
 
     init {
+        if (!isTab) scope.launch { runCatching { cleanupOld(cleanupDays) } }
         refreshProjects()
         sessionList = sessions.list()
         if (!settings.freshOnStart && !isTab) {
@@ -2142,6 +2143,87 @@ class ChatController(
         }
     }
 
+    // ---------- очистка ----------
+
+    var cleanupDays by mutableIntStateOf(settingsStore.rawGet("cleanupDays")?.toIntOrNull() ?: 0)
+        private set
+    fun setCleanupDaysValue(d: Int) { cleanupDays = d; settingsStore.rawPut("cleanupDays", d.toString()) }
+
+    /** Чистит кэш npm и apk, временные файлы; возвращает сообщение с освобождённым местом. */
+    suspend fun cleanCaches(): String {
+        if (!linuxActive) return "Linux не включён: чистить нечего."
+        val before = withContext(Dispatchers.IO) { dirSize(linuxEnv.rootfs) }
+        runCatching { runFull("npm cache clean --force; rm -rf /root/.npm/_cacache /root/.npm/_logs; apk cache clean 2>/dev/null; rm -rf /tmp/* 2>/dev/null; echo ok", 300) }
+        val after = withContext(Dispatchers.IO) { dirSize(linuxEnv.rootfs) }
+        val freed = (before - after).coerceAtLeast(0)
+        return "Освобождено ≈ ${freed / (1024 * 1024)} МБ."
+    }
+
+    /** Удаляет старые чаты (кроме закреплённых и текущего) и старые снимки (оставляя по одному на проект). */
+    suspend fun cleanupOld(days: Int): String {
+        if (days <= 0) return "Автоочистка выключена."
+        val cutoff = System.currentTimeMillis() - days * 86_400_000L
+        var chats = 0
+        for (m in sessions.list()) {
+            if (m.pinned || m.id == currentId || m.updatedAt >= cutoff) continue
+            sessions.delete(m.id); chats++
+        }
+        sessionList = sessions.list()
+        var snaps = 0
+        withContext(Dispatchers.IO) {
+            File(app.filesDir, "snapshots").listFiles()?.filter { it.isDirectory }?.forEach { pdir ->
+                val kids = pdir.listFiles()?.sortedByDescending { it.lastModified() }.orEmpty()
+                kids.drop(1).filter { it.lastModified() < cutoff }.forEach { if (it.deleteRecursively()) snaps++ }
+            }
+        }
+        return "Удалено чатов: $chats, снимков: $snaps (старше $days дн.)."
+    }
+
+    // ---------- заметки проекта, шаблоны, модель ----------
+
+    private val notesFile: File get() = File(workspace.root, ".pocketcode/NOTES.md")
+    fun notesText(): String = runCatching { notesFile.readText() }.getOrDefault("")
+    fun saveNotes(text: String) {
+        runCatching {
+            notesFile.parentFile?.mkdirs()
+            notesFile.writeText(text.trim() + "\n")
+            if (!running) agent = null
+        }
+    }
+
+    var promptTemplates by mutableStateOf(
+        runCatching {
+            (kotlinx.serialization.json.Json.parseToJsonElement(settingsStore.rawGet("templates") ?: "[]") as kotlinx.serialization.json.JsonArray)
+                .map { (it as kotlinx.serialization.json.JsonPrimitive).content }
+        }.getOrDefault(emptyList()),
+    )
+        private set
+
+    private fun saveTemplates(l: List<String>) {
+        promptTemplates = l
+        settingsStore.rawPut("templates", kotlinx.serialization.json.JsonArray(l.map { kotlinx.serialization.json.JsonPrimitive(it) }).toString())
+    }
+    fun addTemplate(t: String) { val s = t.trim(); if (s.isNotEmpty() && s !in promptTemplates) saveTemplates(promptTemplates + s) }
+    fun removeTemplate(i: Int) { if (i in promptTemplates.indices) saveTemplates(promptTemplates.filterIndexed { k, _ -> k != i }) }
+
+    /** Быстрая смена модели активного профиля. */
+    fun setModelNow(model: String) {
+        val m = model.trim().ifEmpty { return }
+        profiles = profiles.map { if (it.id == activeProfileId) it.copy(model = m) else it }
+        settings = settings.copy(model = m)
+        if (!isTab) {
+            settingsStore.saveProfiles(profiles, activeProfileId)
+            settingsStore.save(settings)
+        }
+        if (!running) agent = null
+    }
+
+    // ---------- защита приложения ----------
+
+    var appLock by mutableStateOf(settingsStore.rawGet("appLock") == "1")
+        private set
+    fun setAppLockValue(v: Boolean) { appLock = v; settingsStore.rawPut("appLock", if (v) "1" else "0") }
+
     // ---------- занимаемое место ----------
 
     private fun dirSize(f: File): Long {
@@ -2198,16 +2280,147 @@ class ChatController(
 
     private val ansi = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]")
 
-    private fun sendViaOpenCode(prompt: String) {
+    // --- состояние и статистика режима OpenCode ---
+    var ocCards by mutableStateOf(settingsStore.rawGet("ocCards") == "1")
+    fun setOcCardsValue(v: Boolean) { ocCards = v; settingsStore.rawPut("ocCards", if (v) "1" else "0") }
+
+    private fun ocLongs(key: String): List<Long> = (settingsStore.rawGet(key) ?: "").split(',').mapNotNull { it.toLongOrNull() }
+    private fun ocAddLong(key: String, v: Long, keep: Int) = settingsStore.rawPut(key, (ocLongs(key) + v).takeLast(keep).joinToString(","))
+
+    var ocStatsVersion by mutableIntStateOf(0)
+        private set
+
+    /** Сводка по запросам к OpenCode: помогает понять, где у бесплатного лимита порог. */
+    fun ocStatsText(): String {
+        ocStatsVersion
+        val now = System.currentTimeMillis()
+        val runs = ocLongs("ocRuns")
+        val hits = ocLongs("ocHits")
+        val fmt = java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault())
+        val sb = StringBuilder()
+        sb.append("Запросов за 24 часа: ").append(runs.count { now - it < 86_400_000L })
+            .append(", за 7 дней: ").append(runs.count { now - it < 7 * 86_400_000L }).append('\n')
+        if (hits.isEmpty()) sb.append("Лимит пока не срабатывал.")
+        else {
+            sb.append("Лимит срабатывал: ").append(hits.takeLast(3).joinToString { fmt.format(java.util.Date(it)) }).append('\n')
+            val last = hits.last()
+            val prev = hits.dropLast(1).lastOrNull() ?: 0L
+            sb.append("Запросов между предыдущим и последним срабатыванием: ").append(runs.count { it > prev && it <= last })
+        }
+        return sb.toString()
+    }
+
+    // --- ключи OpenCode (auth.json внутри Linux) ---
+    private val ocAuthFile: File get() = File(linuxEnv.rootfs, "root/.local/share/opencode/auth.json")
+    var ocProviders by mutableStateOf<List<String>>(emptyList())
+        private set
+
+    private fun ocAuthRead(): MutableMap<String, kotlinx.serialization.json.JsonElement> = runCatching {
+        (kotlinx.serialization.json.Json.parseToJsonElement(ocAuthFile.readText()) as kotlinx.serialization.json.JsonObject).toMutableMap()
+    }.getOrDefault(mutableMapOf())
+
+    fun refreshOcProviders() { ocProviders = ocAuthRead().keys.toList() }
+
+    fun ocAuthSet(provider: String, key: String): String {
+        val p = provider.trim().lowercase().replace(Regex("[^a-z0-9._-]"), "")
+        if (p.isEmpty() || key.isBlank()) return "Укажи провайдера и ключ."
+        if (!linuxEnv.isInstalled()) return "Сначала установи Linux."
+        return try {
+            val m = ocAuthRead()
+            m[p] = kotlinx.serialization.json.buildJsonObject {
+                put("type", kotlinx.serialization.json.JsonPrimitive("api"))
+                put("key", kotlinx.serialization.json.JsonPrimitive(key.trim()))
+            }
+            ocAuthFile.parentFile?.mkdirs()
+            ocAuthFile.writeText(kotlinx.serialization.json.JsonObject(m).toString())
+            runCatching { ocAuthFile.setReadable(false, false); ocAuthFile.setReadable(true, true); ocAuthFile.setWritable(true, true) }
+            Secrets.known = Secrets.known + key.trim()
+            refreshOcProviders()
+            "Ключ для «$p» сохранён."
+        } catch (e: Throwable) {
+            "Не удалось записать: ${e.message}"
+        }
+    }
+
+    fun ocAuthRemove(provider: String) {
+        val m = ocAuthRead()
+        m.remove(provider)
+        runCatching { ocAuthFile.writeText(kotlinx.serialization.json.JsonObject(m).toString()) }
+        refreshOcProviders()
+    }
+
+    // --- список моделей OpenCode ---
+    var ocModelList by mutableStateOf<List<String>>(emptyList())
+        private set
+    var ocModelsBusy by mutableStateOf(false)
+        private set
+
+    fun loadOcModels() {
+        if (ocModelsBusy || !linuxActive) return
+        ocModelsBusy = true
+        scope.launch {
+            val raw = runCatching { runFull("opencode models", 90) }.getOrDefault("")
+            ocModelList = raw.lines().map { it.trim() }.filter { it.contains('/') && !it.contains(' ') }.sorted()
+            ocModelsBusy = false
+        }
+    }
+
+    private val netErr = Regex("EAI_AGAIN|ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|fetch failed|socket hang up|Unable to connect|network is unreachable", RegexOption.IGNORE_CASE)
+    private var ocRetries = 0
+
+    /** Разбор одной строки `opencode run --format json`: возвращает true, если строка обработана как событие. */
+    private fun handleOcEvent(line: String, parts: MutableMap<String, Int>): Boolean {
+        val obj = try {
+            kotlinx.serialization.json.Json.parseToJsonElement(line) as? kotlinx.serialization.json.JsonObject
+        } catch (e: Exception) {
+            null
+        } ?: return false
+        fun str(o: kotlinx.serialization.json.JsonObject?, k: String) = (o?.get(k) as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        val type = str(obj, "type")
+        val part = obj["part"] as? kotlinx.serialization.json.JsonObject
+        if (part == null) {
+            if (type == "error") {
+                val msg = ((obj["error"] as? kotlinx.serialization.json.JsonObject)?.let { str(it, "message") ?: it.toString() }) ?: line
+                items += UiItem.Error(Secrets.mask(msg.take(800)))
+                lastRunFailed = true
+            }
+            return true
+        }
+        val id = str(part, "id") ?: (str(part, "type") + items.size)
+        when (str(part, "type")) {
+            "text" -> {
+                val text = str(part, "text").orEmpty()
+                if (text.isBlank()) return true
+                val at = parts[id]
+                if (at != null && at < items.size) items[at] = UiItem.Assistant(Secrets.mask(text))
+                else { items += UiItem.Assistant(Secrets.mask(text)); parts[id] = items.lastIndex }
+            }
+            "tool" -> {
+                val state = part["state"] as? kotlinx.serialization.json.JsonObject
+                val status = str(state, "status")
+                val input = state?.get("input") as? kotlinx.serialization.json.JsonObject
+                val desc = str(input, "command") ?: str(input, "filePath") ?: str(input, "path") ?: str(input, "pattern") ?: str(input, "url") ?: (input?.toString() ?: "")
+                val done = status == "completed" || status == "error"
+                val out = if (done) Secrets.mask(str(state, "output") ?: str(state, "error") ?: "") else null
+                val card = UiItem.Tool(str(part, "tool") ?: "tool", Secrets.mask(desc.take(300)), out, status == "error")
+                val at = parts[id]
+                if (at != null && at < items.size) items[at] = card else { items += card; parts[id] = items.lastIndex }
+            }
+        }
+        return true
+    }
+
+    private fun sendViaOpenCode(prompt: String, isRetry: Boolean = false) {
         if (!linuxActive) {
             items += UiItem.Error("Режим OpenCode работает только в Linux: включи его и установи в разделе «Проекты», затем «Терминал» → «Установить OpenCode».")
             return
         }
         if (currentId == null) currentId = UUID.randomUUID().toString()
-        items += UiItem.User(prompt, 0)
+        if (!isRetry) { items += UiItem.User(prompt, 0); ocRetries = 0; ocAddLong("ocRuns", System.currentTimeMillis(), 300); ocStatsVersion++ }
         val reply = UiItem.Assistant("⏳ OpenCode запускается и думает… (в Linux на телефоне первый ответ может идти минуту)")
         items += reply
         val idx = items.lastIndex
+        var placeholder = true
         streamingIndex = null
         lastRunFailed = false
         running = true
@@ -2220,20 +2433,23 @@ class ChatController(
         val perm = "export OPENCODE_PERMISSION='{\"external_directory\":{\"/tmp\":\"allow\",\"/tmp/**\":\"allow\"}}'; "
         val resume = when {
             ocSessionId != null -> " --session '" + ocSessionId!!.replace("'", "") + "'"
-            ocContinue -> " --continue"
+            ocContinue || isRetry -> " --continue"
             else -> ""
         }
-        val cmd = perm + "opencode run" + resume + model + " " + q
+        val cards = ocCards
+        val cmd = perm + "opencode run" + (if (cards) " --format json" else "") + resume + model + " " + q
         val myRun = ++runId
+        var retryScheduled = false
         job = scope.launch {
             var proc: Process? = null
             try {
-                runCatching { snapshots.create(currentProject, workspace.root, prompt) }
+                if (!isRetry) runCatching { snapshots.create(currentProject, workspace.root, prompt) }
                 val pb = linuxShell.builder(cmd, workspace.root).redirectErrorStream(true)
                 proc = pb.start()
                 proc.outputStream.close() // иначе opencode ждёт ввода из stdin и не стартует
                 val p = proc
                 val buf = StringBuilder()
+                val parts = mutableMapOf<String, Int>()
                 val reader = launch(Dispatchers.IO) {
                   try {
                     val br = p.inputStream.bufferedReader()
@@ -2242,8 +2458,15 @@ class ChatController(
                         val clean = Secrets.mask(ansi.replace(line, "").substringAfterLast('\r'))
                         if (clean.isBlank() && buf.isEmpty()) continue
                         buf.append(clean).append('\n')
+                        if (cards && clean.trimStart().startsWith("{")) {
+                            val handled = withContext(Dispatchers.Main) {
+                                if (placeholder && idx < items.size) { items.removeAt(idx); placeholder = false }
+                                handleOcEvent(clean.trim(), parts)
+                            }
+                            if (handled) continue
+                        }
                         val snapshot = buf.toString().takeLast(60_000)
-                        withContext(Dispatchers.Main) { if (idx < items.size) items[idx] = UiItem.Assistant(snapshot) }
+                        withContext(Dispatchers.Main) { if (placeholder && idx < items.size) items[idx] = UiItem.Assistant(snapshot) else if (!cards) {} else items += UiItem.Notice(clean.take(300)) }
                     }
                   } catch (e: java.io.IOException) {
                     // Процесс остановлен: поток закрыт, это не ошибка
@@ -2256,13 +2479,20 @@ class ChatController(
                     throw e
                 }
                 val code = withContext(Dispatchers.IO) { p.waitFor() }
+                if (placeholder && cards && idx < items.size && (items[idx] as? UiItem.Assistant)?.text?.startsWith("⏳") == true) items.removeAt(idx)
                 setOcContinue(true)
-                if (code != 0) {
+                val text = buf.toString()
+                if (code != 0 && netErr.containsMatchIn(text) && ocRetries < 4) {
+                    ocRetries++
+                    retryScheduled = true
+                    items += UiItem.Notice("Сеть недоступна (${netErr.find(text)?.value}). Повтор через 15 с, попытка $ocRetries из 4.")
+                } else if (code != 0) {
                     lastRunFailed = true
+                    if (text.contains("Free usage limit", ignoreCase = true)) { ocAddLong("ocHits", System.currentTimeMillis(), 50); ocStatsVersion++ }
                     items += UiItem.Error(
                         "OpenCode завершился с кодом $code." +
-                            (if (buf.contains("Free usage limit", ignoreCase = true)) "\n\n💡 Это лимит бесплатных моделей на сервере OpenCode, а не ошибка приложения. Размер лимита и время сброса OpenCode не сообщает. Варианты: подождать и попробовать позже, оформить их платный тариф (opencode.ai/go) или переключиться на другого провайдера: Gemini, OpenRouter :free, Groq, NVIDIA (☰ → Настройки → Шаблоны провайдеров), выключив режим OpenCode." else "") +
-                            (if (buf.isEmpty() || buf.contains("not found")) "\n\n💡 Похоже, OpenCode не установлен: ☰ → Терминал → «Установить OpenCode». Для его бесплатных моделей может понадобиться вход: в терминале `opencode auth login`." else ""),
+                            (if (text.contains("Free usage limit", ignoreCase = true)) "\n\n💡 Это лимит бесплатных моделей на сервере OpenCode, а не ошибка приложения. Размер лимита и время сброса OpenCode не сообщает. Варианты: подождать и попробовать позже, оформить их платный тариф (opencode.ai/go) или переключиться на другого провайдера: Gemini, OpenRouter :free, Groq, NVIDIA (☰ → Настройки → Шаблоны провайдеров), выключив режим OpenCode." else "") +
+                            (if (text.isBlank() || text.contains("not found")) "\n\n💡 Похоже, OpenCode не установлен: ☰ → Терминал → «Установить OpenCode». Для его бесплатных моделей может понадобиться вход: ☰ → Диалоги OpenCode → «Ключ OpenCode»." else ""),
                     )
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -2274,9 +2504,19 @@ class ChatController(
                 proc?.destroyForcibly()
                 if (myRun == runId) {
                     finishRun()
-                    val next = if (!lastRunFailed && queue.isNotEmpty()) queue.removeAt(0).also { saveQueue() } else null
-                    if (next != null) send(next)
-                    else if (!appVisible) Notifier.alert(app, "OpenCode закончил", (items.getOrNull(idx) as? UiItem.Assistant)?.text?.takeLast(200) ?: "Готово")
+                    if (retryScheduled) {
+                        val retryId = ++runId
+                        running = true
+                        startService()
+                        job = scope.launch {
+                            kotlinx.coroutines.delay(15_000)
+                            if (retryId == runId) { running = false; sendViaOpenCode("Продолжай с того места, где остановился.", isRetry = true) }
+                        }
+                    } else {
+                        val next = if (!lastRunFailed && queue.isNotEmpty()) queue.removeAt(0).also { saveQueue() } else null
+                        if (next != null) send(next)
+                        else if (!appVisible) Notifier.alert(app, "OpenCode закончил", (items.lastOrNull { it is UiItem.Assistant } as? UiItem.Assistant)?.text?.takeLast(200) ?: "Готово")
+                    }
                 }
             }
         }

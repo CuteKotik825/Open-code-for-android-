@@ -16,6 +16,7 @@ object AppLog {
         val prev = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
             runCatching { log("CRASH", "${t.name}: " + e.stackTraceToString().take(2500)) }
+            runCatching { File(context.filesDir, "crashed.flag").writeText(System.currentTimeMillis().toString()) }
             prev?.uncaughtException(t, e)
         }
     }

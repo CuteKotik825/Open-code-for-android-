@@ -15,6 +15,7 @@ import com.pocketcode.PocketCodeApp
  */
 class AgentService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -24,6 +25,15 @@ class AgentService : Service() {
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "pocketcode:agent").apply {
             setReferenceCounted(false)
             acquire(WAKE_LOCK_TIMEOUT_MS)
+        }
+        // Не даём Wi-Fi уснуть при выключенном экране (частая причина обрывов связи в долгих задачах)
+        runCatching {
+            val wm = applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+            @Suppress("DEPRECATION")
+            wifiLock = wm.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "pocketcode:wifi").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
         }
     }
 
@@ -44,6 +54,7 @@ class AgentService : Service() {
 
     override fun onDestroy() {
         wakeLock?.let { if (it.isHeld) it.release() }
+        runCatching { wifiLock?.let { if (it.isHeld) it.release() } }
         super.onDestroy()
     }
 
