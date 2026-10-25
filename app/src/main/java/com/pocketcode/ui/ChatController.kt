@@ -1371,22 +1371,118 @@ class ChatController(
     val term = mutableStateListOf<TermEntry>()
     var termJob: kotlinx.coroutines.Job? = null
     val termBusy: Boolean get() = termJob?.isActive == true
+    private var termProc: Process? = null
 
-    fun termRun(cmd: String, timeoutSec: Long = 600) {
+    /** Мини-эмулятор экрана: понимает \r, \n и основные управляющие последовательности (курсор вверх, очистка строки). */
+    private class Screen {
+        val lines = mutableListOf(StringBuilder())
+        var row = 0
+        var col = 0
+
+        private fun line(): StringBuilder {
+            while (lines.size <= row) lines += StringBuilder()
+            return lines[row]
+        }
+
+        fun put(ch: Char) {
+            val l = line()
+            while (l.length < col) l.append(' ')
+            if (col < l.length) l.setCharAt(col, ch) else l.append(ch)
+            col++
+        }
+
+        fun feed(s: String) {
+            var i = 0
+            while (i < s.length) {
+                val ch = s[i]
+                when {
+                    ch == '\u001B' && i + 1 < s.length && s[i + 1] == '[' -> {
+                        var k = i + 2
+                        while (k < s.length && (s[k] in '0'..'9' || s[k] == ';' || s[k] == '?')) k++
+                        if (k >= s.length) { i = s.length; continue }
+                        val params = s.substring(i + 2, k).removePrefix("?")
+                        val n = params.split(';').firstOrNull()?.toIntOrNull()
+                        when (s[k]) {
+                            'A' -> row = (row - (n ?: 1)).coerceAtLeast(0)
+                            'B' -> row += n ?: 1
+                            'C' -> col += n ?: 1
+                            'D' -> col = (col - (n ?: 1)).coerceAtLeast(0)
+                            'G' -> col = ((n ?: 1) - 1).coerceAtLeast(0)
+                            'K' -> { val l = line(); if (col < l.length) l.setLength(if ((n ?: 0) == 0) col else 0) }
+                            'J' -> { if ((n ?: 0) == 0) { line().let { if (col < it.length) it.setLength(col) }; while (lines.size > row + 1) lines.removeAt(lines.size - 1) } }
+                        }
+                        i = k + 1
+                    }
+                    ch == '\u001B' -> i += if (i + 1 < s.length && s[i + 1] == ']') {
+                        // OSC: до BEL или ESC \
+                        var k = i + 2
+                        while (k < s.length && s[k] != '\u0007') k++
+                        k - i + 1
+                    } else 2
+                    ch == '\r' -> { col = 0; i++ }
+                    ch == '\n' -> { row++; col = 0; line(); i++ }
+                    ch == '\b' -> { col = (col - 1).coerceAtLeast(0); i++ }
+                    ch == '\u0007' || ch < ' ' && ch != '\t' -> i++
+                    else -> { put(ch); i++ }
+                }
+            }
+        }
+
+        fun text(): String {
+            val t = lines.joinToString("\n") { it.trimEnd() }
+            return if (t.length > 200_000) t.takeLast(200_000) else t
+        }
+    }
+
+    fun termRun(cmd: String, timeoutSec: Long = 600, tty: Boolean = false) {
         val c = cmd.trim().ifEmpty { return }
         if (termBusy) return
         val e = TermEntry(c)
         term += e
         while (term.size > 60) term.removeAt(0)
+        val real = if (tty && linuxActive) "script -qc '" + c.replace("'", "'\\''") + "' /dev/null" else c
         termJob = scope.launch {
-            e.out = try {
-                Secrets.mask(withContext(Dispatchers.IO) { shell.run(c, workspace.root, timeoutSec) }.take(60_000))
+            var proc: Process? = null
+            val screen = Screen()
+            try {
+                proc = shell.builder(real, workspace.root).redirectErrorStream(true).start()
+                termProc = proc
+                val p = proc
+                if (!tty) p.outputStream.close()
+                kotlinx.coroutines.withTimeout(timeoutSec * 1000) {
+                    withContext(Dispatchers.IO) {
+                        val reader = p.inputStream.reader(Charsets.UTF_8)
+                        val buf = CharArray(4096)
+                        while (true) {
+                            val n = runInterruptible { reader.read(buf) }
+                            if (n < 0) break
+                            screen.feed(String(buf, 0, n))
+                            val text = Secrets.mask(screen.text())
+                            withContext(Dispatchers.Main) { e.out = text }
+                        }
+                    }
+                }
+                val code = withContext(Dispatchers.IO) { p.waitFor() }
+                e.out = Secrets.mask(screen.text()) + "\n[код выхода: $code]"
+            } catch (x: kotlinx.coroutines.TimeoutCancellationException) {
+                e.out = Secrets.mask(screen.text()) + "\n[таймаут ${timeoutSec} с, процесс остановлен]"
             } catch (x: kotlinx.coroutines.CancellationException) {
-                "(остановлено)"
+                e.out = Secrets.mask(screen.text()) + "\n[остановлено]"
             } catch (x: Throwable) {
-                "Ошибка: ${x.message ?: x}"
+                e.out = "Ошибка: ${x.message ?: x}"
+            } finally {
+                proc?.destroyForcibly()
+                termProc = null
+                e.done = true
             }
-            e.done = true
+        }
+    }
+
+    /** Отправляет текст или клавиши запущенной программе (нужен режим TTY для стрелок и Ctrl+C). */
+    fun termSend(text: String) {
+        val p = termProc ?: return
+        scope.launch(Dispatchers.IO) {
+            runCatching { p.outputStream.write(text.toByteArray()); p.outputStream.flush() }
         }
     }
 
