@@ -1871,7 +1871,7 @@ class ChatController(
         }
         if (currentId == null) currentId = UUID.randomUUID().toString()
         items += UiItem.User(prompt, 0)
-        val reply = UiItem.Assistant("")
+        val reply = UiItem.Assistant("⏳ OpenCode запускается и думает… (в Linux на телефоне первый ответ может идти минуту)")
         items += reply
         val idx = items.lastIndex
         streamingIndex = null
@@ -1890,6 +1890,7 @@ class ChatController(
                 runCatching { snapshots.create(currentProject, workspace.root, prompt) }
                 val pb = linuxShell.builder(cmd, workspace.root).redirectErrorStream(true)
                 proc = pb.start()
+                proc.outputStream.close() // иначе opencode ждёт ввода из stdin и не стартует
                 val p = proc
                 val buf = StringBuilder()
                 val reader = launch(Dispatchers.IO) {
