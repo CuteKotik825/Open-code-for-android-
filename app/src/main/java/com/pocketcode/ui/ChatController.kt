@@ -1854,6 +1854,170 @@ class ChatController(
         return Block.Image("image/jpeg", android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP))
     }
 
+    // ---------- диалоги OpenCode ----------
+
+    class OcSession(val id: String, val title: String, val updated: String)
+
+    var ocSessions by mutableStateOf<List<OcSession>>(emptyList())
+        private set
+    var ocSessionsMsg by mutableStateOf<String?>(null)
+        private set
+    var ocSessionsBusy by mutableStateOf(false)
+        private set
+    var ocSessionId by mutableStateOf<String?>(null)
+        private set
+    var ocSessionTitle by mutableStateOf("")
+        private set
+
+    private fun jsonStart(text: String): String {
+        val i = text.indexOfFirst { it == '[' || it == '{' }
+        return if (i < 0) text else text.substring(i)
+    }
+
+    private fun fmtTime(e: kotlinx.serialization.json.JsonElement?): String {
+        val p = e as? kotlinx.serialization.json.JsonPrimitive ?: return ""
+        val n = p.content.toLongOrNull() ?: return p.content
+        val ms = if (n < 100_000_000_000L) n * 1000 else n
+        return java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(ms))
+    }
+
+    fun refreshOcSessions() {
+        if (ocSessionsBusy) return
+        if (!linuxActive) { ocSessionsMsg = "Нужен включённый Linux с установленным OpenCode."; return }
+        ocSessionsBusy = true
+        ocSessionsMsg = "Загружаю список…"
+        scope.launch {
+            val raw = try {
+                withContext(Dispatchers.IO) { shell.run("opencode session list --format json -n 100 2>&1", workspace.root, 120) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                "Ошибка: ${e.message}"
+            }
+            try {
+                val arr = kotlinx.serialization.json.Json.parseToJsonElement(jsonStart(raw)) as kotlinx.serialization.json.JsonArray
+                ocSessions = arr.mapNotNull { el ->
+                    val o = el as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
+                    val id = (o["id"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: return@mapNotNull null
+                    val title = (o["title"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty().ifBlank { "(без названия)" }
+                    val t = (o["time"] as? kotlinx.serialization.json.JsonObject)?.get("updated") ?: o["updated"] ?: o["time"]
+                    OcSession(id, title, fmtTime(t))
+                }
+                ocSessionsMsg = if (ocSessions.isEmpty()) "Бесед пока нет." else null
+            } catch (e: Throwable) {
+                ocSessions = emptyList()
+                ocSessionsMsg = "Не удалось разобрать ответ OpenCode:\n" + Secrets.mask(raw.take(600))
+            }
+            ocSessionsBusy = false
+        }
+    }
+
+    fun deleteOcSession(id: String) {
+        if (ocSessionsBusy) return
+        ocSessionsBusy = true
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { shell.run("opencode session delete '${id.replace("'", "")}' 2>&1", workspace.root, 60) } }
+            if (ocSessionId == id) { ocSessionId = null; ocSessionTitle = "" }
+            ocSessionsBusy = false
+            refreshOcSessions()
+        }
+    }
+
+    fun newOcSession() {
+        ocSessionId = null
+        ocSessionTitle = ""
+        setOcContinue(false)
+        items += UiItem.Notice("— Следующее сообщение начнёт новую беседу OpenCode —")
+    }
+
+    /** Выбирает беседу: следующие сообщения продолжат её, а переписка показывается в чате. */
+    fun useOcSession(s: OcSession) {
+        if (running) return
+        ocSessionId = s.id
+        ocSessionTitle = s.title
+        ocSessionsBusy = true
+        ocSessionsMsg = "Открываю беседу…"
+        scope.launch {
+            val raw = try {
+                withContext(Dispatchers.IO) { shell.run("opencode export '${s.id.replace("'", "")}' 2>/dev/null", workspace.root, 120) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                ""
+            }
+            val shown = mutableListOf<UiItem>()
+            try {
+                val root = kotlinx.serialization.json.Json.parseToJsonElement(jsonStart(raw)) as kotlinx.serialization.json.JsonObject
+                val msgs = root["messages"] as? kotlinx.serialization.json.JsonArray
+                msgs?.forEach { m ->
+                    val mo = m as? kotlinx.serialization.json.JsonObject ?: return@forEach
+                    val role = ((mo["info"] as? kotlinx.serialization.json.JsonObject)?.get("role") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                    val parts = mo["parts"] as? kotlinx.serialization.json.JsonArray ?: return@forEach
+                    val text = parts.mapNotNull { p ->
+                        val po = p as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
+                        when ((po["type"] as? kotlinx.serialization.json.JsonPrimitive)?.content) {
+                            "text" -> (po["text"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                            "tool" -> "🔧 " + ((po["tool"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "tool")
+                            else -> null
+                        }
+                    }.joinToString("\n").trim()
+                    if (text.isNotEmpty()) shown += if (role == "user") UiItem.User(Secrets.mask(text), 0) else UiItem.Assistant(Secrets.mask(text))
+                }
+            } catch (e: Throwable) {
+            }
+            items.clear()
+            items += UiItem.Notice("— Беседа OpenCode: ${s.title}. Новые сообщения продолжат её —")
+            if (shown.isEmpty()) items += UiItem.Notice("(переписку показать не удалось, но беседа выбрана и продолжится)")
+            else items.addAll(shown.takeLast(80))
+            if (currentId == null) currentId = UUID.randomUUID().toString()
+            openCodeMode = true
+            persist()
+            ocSessionsBusy = false
+            ocSessionsMsg = null
+        }
+    }
+
+    // ---------- занимаемое место ----------
+
+    private fun dirSize(f: File): Long {
+        if (!f.exists()) return 0
+        var total = 0L
+        try {
+            java.nio.file.Files.walkFileTree(f.toPath(), object : java.nio.file.SimpleFileVisitor<java.nio.file.Path>() {
+                override fun visitFile(file: java.nio.file.Path, attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult {
+                    if (attrs.isRegularFile) total += attrs.size()
+                    return java.nio.file.FileVisitResult.CONTINUE
+                }
+                override fun visitFileFailed(file: java.nio.file.Path, exc: java.io.IOException): java.nio.file.FileVisitResult =
+                    java.nio.file.FileVisitResult.CONTINUE
+            })
+        } catch (e: Exception) {
+        }
+        return total
+    }
+
+    /** Список (название, байт); последний элемент «Свободно на телефоне». */
+    suspend fun storageUsage(): List<Pair<String, Long>> = withContext(Dispatchers.IO) {
+        val root = linuxEnv.rootfs
+        val oc = File(root, "root/.local/share/opencode")
+        val npm = File(root, "root/.npm")
+        val rootTotal = dirSize(root)
+        val list = mutableListOf<Pair<String, Long>>()
+        list += "Linux целиком (система, пакеты, OpenCode)" to rootTotal
+        list += "  из них данные и беседы OpenCode" to dirSize(oc)
+        list += "  из них кэш npm" to dirSize(npm)
+        list += "Проекты (папка приложения)" to dirSize(privateDir)
+        if (sharedDir.exists()) list += "Проекты в общей папке PocketCode" to dirSize(sharedDir)
+        list += "Снимки для отката" to dirSize(File(app.filesDir, "snapshots"))
+        list += "Изолированные рабочие копии" to dirSize(File(app.filesDir, "worktrees"))
+        list += "Сессии чатов" to dirSize(File(app.filesDir, "sessions"))
+        list += "Временные файлы и кэш" to dirSize(app.cacheDir)
+        list += "Всё приложение (папка данных)" to dirSize(app.filesDir)
+        val free = runCatching { android.os.StatFs(app.filesDir.path).availableBytes }.getOrDefault(0L)
+        list += "Свободно на телефоне" to free
+        list
+    }
+
     // ---------- движок OpenCode (официальный клиент внутри Linux) ----------
 
     var openCodeMode by mutableStateOf(false)
@@ -1882,7 +2046,14 @@ class ChatController(
         Notifier.clearAlert(app)
         val q = "'" + prompt.replace("'", "'\\''") + "'"
         val model = ocModel.trim().takeIf { it.isNotEmpty() }?.let { " -m '" + it.replace("'", "") + "'" } ?: ""
-        val cmd = "opencode run" + (if (ocContinue) " --continue" else "") + model + " " + q
+        // /tmp разрешён всегда (временные файлы), остальное вне проекта OpenCode по-прежнему отклоняет
+        val perm = "export OPENCODE_PERMISSION='{\"external_directory\":{\"/tmp\":\"allow\",\"/tmp/**\":\"allow\"}}'; "
+        val resume = when {
+            ocSessionId != null -> " --session '" + ocSessionId!!.replace("'", "") + "'"
+            ocContinue -> " --continue"
+            else -> ""
+        }
+        val cmd = perm + "opencode run" + resume + model + " " + q
         val myRun = ++runId
         job = scope.launch {
             var proc: Process? = null

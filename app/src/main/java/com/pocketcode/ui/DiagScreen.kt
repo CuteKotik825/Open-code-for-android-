@@ -18,6 +18,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +41,15 @@ fun DiagScreen(vm: ChatController, onBack: () -> Unit, onExport: () -> Unit, onI
     var limit by remember { mutableStateOf(vm.settings.dailyTokenLimit.takeIf { it > 0 }?.toString() ?: "") }
     var copied by remember { mutableStateOf(false) }
     @Suppress("UNUSED_VARIABLE") val version = vm.usageVersion
+    var storage by remember { mutableStateOf<List<Pair<String, Long>>?>(null) }
+    var storageBusy by remember { mutableStateOf(false) }
+    val dScope = androidx.compose.runtime.rememberCoroutineScope()
+    fun sz(b: Long) = when {
+        b >= 1L shl 30 -> "%.2f ГБ".format(b / (1L shl 30).toDouble())
+        b >= 1L shl 20 -> "%.1f МБ".format(b / (1L shl 20).toDouble())
+        b >= 1L shl 10 -> "${b shr 10} КБ"
+        else -> "$b Б"
+    }
 
     fun k(n: Long) = when {
         n >= 1_000_000 -> "%.2f млн".format(n / 1_000_000.0)
@@ -83,6 +93,15 @@ fun DiagScreen(vm: ChatController, onBack: () -> Unit, onExport: () -> Unit, onI
                 }) { Text("Поделиться") }
                 TextButton(onClick = { com.pocketcode.AppLog.clear(); copied = false }) { Text("Очистить журнал") }
             }
+
+            Text("Занимаемое место", style = MaterialTheme.typography.titleMedium)
+            OutlinedButton(
+                onClick = { storageBusy = true; dScope.launch { storage = vm.storageUsage(); storageBusy = false } },
+                enabled = !storageBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (storageBusy) "Считаю…" else "Посчитать, что сколько занимает") }
+            storage?.forEach { (name, bytes) -> Text("$name: ${sz(bytes)}", style = MaterialTheme.typography.bodySmall) }
+            if (storage != null) Text("Linux можно облегчить в «Терминале»: npm cache clean --force, apk cache clean. Беседы OpenCode удаляются на экране «Диалоги OpenCode».", style = MaterialTheme.typography.labelSmall)
 
             Text("Расход токенов", style = MaterialTheme.typography.titleMedium)
             val today = vm.usageToday()

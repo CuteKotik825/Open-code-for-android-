@@ -72,6 +72,7 @@ fun ChatScreen(
     onOpenTerminal: () -> Unit = {},
     onOpenGit: () -> Unit = {},
     onMenu: () -> Unit = {},
+    onOpenOcSessions: () -> Unit = {},
 ) {
     var showNewChat by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
@@ -263,6 +264,14 @@ fun ChatScreen(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                 )
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onOpenOcSessions) { Text("📂 Диалоги OpenCode") }
+                    Text(
+                        if (vm.ocSessionId != null) vm.ocSessionTitle.take(30) else "новая беседа",
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                    )
+                }
                 Text(
                     "Сообщения уходят официальному OpenCode внутри Linux (opencode run). Память чата ведёт он сам, ключи PocketCode не используются.",
                     style = MaterialTheme.typography.labelSmall,

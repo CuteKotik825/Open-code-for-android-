@@ -49,7 +49,7 @@ import com.pocketcode.ui.ProjectsScreen
 import com.pocketcode.ui.SessionsScreen
 import com.pocketcode.ui.SettingsScreen
 
-private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT }
+private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS }
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
@@ -139,6 +139,7 @@ class MainActivity : ComponentActivity() {
                                     "💬 История чатов" to Screen.SESSIONS,
                                     "📁 Проекты" to Screen.PROJECTS,
                                     "🗂 Файлы" to Screen.FILES,
+                                    "🤖 Диалоги OpenCode" to Screen.OCSESSIONS,
                                     "⌨️ Терминал" to Screen.TERMINAL,
                                     "🌿 Git" to Screen.GIT,
                                     "🧠 Что в контексте" to Screen.CONTEXT,
@@ -173,6 +174,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenContext = { screen = Screen.CONTEXT },
                                 onOpenTerminal = { screen = Screen.TERMINAL },
                                 onOpenGit = { screen = Screen.GIT },
+                                onOpenOcSessions = { screen = Screen.OCSESSIONS },
                                 onMenu = { dScope.launch { drawer.open() } },
                                 onExport = { exportMd.launch("chat-" + vm.currentProject + ".md") },
                                 onPickFolder = {
@@ -215,6 +217,10 @@ class MainActivity : ComponentActivity() {
                             onOpenCompare = { screen = Screen.COMPARE },
                             onBack = { screen = Screen.CHAT },
                         )
+                    }
+                    Screen.OCSESSIONS -> {
+                        BackHandler { screen = Screen.CHAT }
+                        com.pocketcode.ui.OcSessionsScreen(vm, onBack = { screen = Screen.CHAT }, onOpened = { screen = Screen.CHAT })
                     }
                     Screen.TERMINAL -> {
                         BackHandler { screen = Screen.CHAT }
