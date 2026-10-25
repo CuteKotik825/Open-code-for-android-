@@ -101,6 +101,25 @@ fun DiagScreen(vm: ChatController, onBack: () -> Unit, onExport: () -> Unit, onI
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(if (storageBusy) "Считаю…" else "Посчитать, что сколько занимает") }
             storage?.forEach { (name, bytes) -> Text("$name: ${sz(bytes)}", style = MaterialTheme.typography.bodySmall) }
+            var cleanMsg by remember { mutableStateOf<String?>(null) }
+            var cleanBusy by remember { mutableStateOf(false) }
+            OutlinedButton(
+                onClick = { cleanBusy = true; cleanMsg = "Чищу…"; dScope.launch { cleanMsg = vm.cleanCaches(); cleanBusy = false; storage = vm.storageUsage() } },
+                enabled = !cleanBusy, modifier = Modifier.fillMaxWidth(),
+            ) { Text("Очистить кэш (npm, apk, временные файлы)") }
+            cleanMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            Text("Автоочистка старых чатов и снимков (закреплённые чаты не трогаются):", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
+                listOf(0 to "выкл", 14 to "14 дн.", 30 to "30 дн.", 60 to "60 дн.").forEach { (days, label) ->
+                    androidx.compose.material3.FilterChip(selected = vm.cleanupDays == days, onClick = { vm.setCleanupDaysValue(days) }, label = { Text(label) })
+                }
+            }
+            if (vm.cleanupDays > 0) OutlinedButton(onClick = { dScope.launch { cleanMsg = vm.cleanupOld(vm.cleanupDays); storage = vm.storageUsage() } }, modifier = Modifier.fillMaxWidth()) { Text("Очистить сейчас") }
+            OutlinedButton(
+                onClick = { runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Не усыплять приложение в фоне (экономия батареи)") }
+            Text("Если Android «усыпляет» PocketCode при выключенном экране, задачи обрываются. Здесь выбери PocketCode и «Не оптимизировать».", style = MaterialTheme.typography.labelSmall)
             if (storage != null) Text("Linux можно облегчить в «Терминале»: npm cache clean --force, apk cache clean. Беседы OpenCode удаляются на экране «Диалоги OpenCode».", style = MaterialTheme.typography.labelSmall)
 
             Text("Расход токенов", style = MaterialTheme.typography.titleMedium)

@@ -492,6 +492,17 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
 
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Защита приложения")
+                    Text(
+                        "При запуске и после минуты в фоне просит PIN, графический ключ или отпечаток, которые стоят на телефоне. Нужна блокировка экрана в настройках Android.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(checked = vm.appLock, onCheckedChange = { vm.setAppLockValue(it) })
+            }
+
             Text("Обновления", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             Text("Установлено: ${vm.currentVersion}", style = MaterialTheme.typography.bodyMedium)
             Text(

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -76,6 +77,11 @@ fun ChatScreen(
 ) {
     var showNewChat by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
+    var dlg by remember { mutableStateOf("") }
+    var notesDraft by remember { mutableStateOf("") }
+    var searchQ by remember { mutableStateOf("") }
+    var newTpl by remember { mutableStateOf("") }
+    var modelDraft by remember { mutableStateOf("") }
     var newProjectName by remember { mutableStateOf("") }
     var profileMenu by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
@@ -137,6 +143,10 @@ fun ChatScreen(
                             DropdownMenuItem(text = { Text("Git") }, onClick = { moreMenu = false; onOpenGit() })
                             DropdownMenuItem(text = { Text("Что в контексте") }, onClick = { moreMenu = false; onOpenContext() })
                             DropdownMenuItem(text = { Text("Экспорт чата в Markdown") }, onClick = { moreMenu = false; onExport() })
+                            DropdownMenuItem(text = { Text("Поиск по чату") }, onClick = { moreMenu = false; searchQ = ""; dlg = "search" })
+                            DropdownMenuItem(text = { Text("Заметки проекта") }, onClick = { moreMenu = false; notesDraft = vm.notesText(); dlg = "notes" })
+                            DropdownMenuItem(text = { Text("Мои шаблоны") }, onClick = { moreMenu = false; newTpl = ""; dlg = "tpl" })
+                            DropdownMenuItem(text = { Text("Сменить модель") }, onClick = { moreMenu = false; modelDraft = vm.settings.model; if (vm.openCodeMode) vm.loadOcModels(); dlg = "model" })
                         }
                     }
                 },
@@ -481,6 +491,95 @@ fun ChatScreen(
         )
     }
 
+    if (dlg == "search") {
+        val q = searchQ.trim()
+        val hits = if (q.length < 2) emptyList() else vm.items.mapIndexedNotNull { i, it ->
+            val t = when (it) {
+                is UiItem.User -> it.text
+                is UiItem.Assistant -> it.text
+                is UiItem.Tool -> it.description
+                is UiItem.Error -> it.text
+                is UiItem.Notice -> it.text
+            }
+            val p = t.indexOf(q, ignoreCase = true)
+            if (p < 0) null else i to t.substring(maxOf(0, p - 30), minOf(t.length, p + 70)).replace("\n", " ")
+        }
+        AlertDialog(
+            onDismissRequest = { dlg = "" },
+            title = { Text("Поиск по чату") },
+            text = {
+                Column {
+                    OutlinedTextField(value = searchQ, onValueChange = { searchQ = it }, singleLine = true, label = { Text("Что искать") }, modifier = Modifier.fillMaxWidth())
+                    Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())) {
+                        if (q.length >= 2 && hits.isEmpty()) Text("Ничего не найдено", style = MaterialTheme.typography.bodySmall)
+                        hits.take(50).forEach { (i, s) ->
+                            TextButton(onClick = { dlg = ""; scope.launch { listState.scrollToItem(i) } }, modifier = Modifier.fillMaxWidth()) {
+                                Text("${i + 1}. $s", maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { dlg = "" }) { Text("Закрыть") } },
+        )
+    }
+    if (dlg == "notes") {
+        AlertDialog(
+            onDismissRequest = { dlg = "" },
+            title = { Text("Заметки проекта") },
+            text = {
+                Column {
+                    Text("Файл .pocketcode/NOTES.md. Агент видит эти заметки в каждом чате этого проекта.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(value = notesDraft, onValueChange = { notesDraft = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 320.dp))
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.saveNotes(notesDraft); dlg = "" }) { Text("Сохранить") } },
+            dismissButton = { TextButton(onClick = { dlg = "" }) { Text("Отмена") } },
+        )
+    }
+    if (dlg == "tpl") {
+        AlertDialog(
+            onDismissRequest = { dlg = "" },
+            title = { Text("Мои шаблоны") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    if (vm.promptTemplates.isEmpty()) Text("Пока пусто. Добавь фразу, которую часто пишешь.", style = MaterialTheme.typography.bodySmall)
+                    vm.promptTemplates.forEachIndexed { i, t ->
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            TextButton(onClick = { input = if (input.isBlank()) t else input.trimEnd() + "\n" + t; dlg = "" }, modifier = Modifier.weight(1f)) {
+                                Text(t, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
+                            }
+                            TextButton(onClick = { vm.removeTemplate(i) }) { Text("✕") }
+                        }
+                    }
+                    OutlinedTextField(value = newTpl, onValueChange = { newTpl = it }, label = { Text("Новый шаблон") }, modifier = Modifier.fillMaxWidth())
+                    TextButton(onClick = { vm.addTemplate(newTpl); newTpl = "" }, enabled = newTpl.isNotBlank()) { Text("Добавить") }
+                }
+            },
+            confirmButton = { TextButton(onClick = { dlg = "" }) { Text("Закрыть") } },
+        )
+    }
+    if (dlg == "model") {
+        AlertDialog(
+            onDismissRequest = { dlg = "" },
+            title = { Text("Сменить модель") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text("Меняется у активного профиля, сразу для следующего запроса.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(value = modelDraft, onValueChange = { modelDraft = it }, singleLine = true, label = { Text("Модель") }, modifier = Modifier.fillMaxWidth())
+                    if (vm.openCodeMode) {
+                        Text("Модели OpenCode (нажми, чтобы выбрать):", style = MaterialTheme.typography.labelSmall)
+                        vm.ocModelList.take(60).forEach { m ->
+                            TextButton(onClick = { vm.setOcModelValue(m); dlg = "" }, modifier = Modifier.fillMaxWidth()) { Text(m, modifier = Modifier.fillMaxWidth()) }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.setModelNow(modelDraft); dlg = "" }) { Text("Применить") } },
+            dismissButton = { TextButton(onClick = { dlg = "" }) { Text("Отмена") } },
+        )
+    }
+
     vm.approval?.let { request ->
         AlertDialog(
             onDismissRequest = { },
@@ -489,6 +588,9 @@ fun ChatScreen(
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     val red = androidx.compose.ui.graphics.Color(0xFFE57373)
                     val green = androidx.compose.ui.graphics.Color(0xFF81C784)
+                    dangerNote(request.description)?.let {
+                        Text("⚠ $it", color = red, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 8.dp))
+                    }
                     Text(
                         androidx.compose.ui.text.buildAnnotatedString {
                             request.description.lines().forEachIndexed { i, line ->
@@ -663,4 +765,23 @@ private fun toolIcon(name: String): String = when (name) {
     "task", "spawn", "worker_result" -> "🧩"
     "todo", "present_plan" -> "📋"
     else -> "🔧"
+}
+
+
+/** Предупреждение об опасной команде в окне подтверждения. */
+private fun dangerNote(desc: String): String? {
+    val d = desc.lowercase()
+    val rules = listOf(
+        Regex("""rm\s+(-\w*r\w*f|-\w*f\w*r|-r\s+-f|-f\s+-r)""") to "Удаление файлов без возврата (rm -rf).",
+        Regex("""\bdd\s+if=""") to "Команда dd может затереть диск или раздел.",
+        Regex("""\bmkfs""") to "Форматирование раздела.",
+        Regex("""chmod\s+-r\s+777""") to "Открытие прав на всё для всех (chmod -R 777).",
+        Regex("""git\s+push\s+.*(--force|-f\b)""") to "Принудительная отправка в git затирает чужую историю.",
+        Regex("""git\s+reset\s+--hard""") to "Сброс git --hard теряет несохранённые правки.",
+        Regex("""git\s+clean\s+-\w*f""") to "git clean удаляет неотслеживаемые файлы.",
+        Regex("""(curl|wget)[^|\n]*\|\s*(sudo\s+)?(sh|bash)""") to "Скачивание и запуск скрипта из сети без просмотра.",
+        Regex("""drop\s+(table|database)""") to "Удаление таблицы или базы данных.",
+        Regex(""">\s*/dev/sd|:\(\)\s*\{""") to "Опасная системная команда.",
+    )
+    return rules.firstOrNull { it.first.containsMatchIn(d) }?.second
 }

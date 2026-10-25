@@ -31,7 +31,10 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Unit) {
     var confirmDelete by remember { mutableStateOf<ChatController.OcSession?>(null) }
-    LaunchedEffect(Unit) { vm.refreshOcSessions() }
+    var provider by remember { mutableStateOf("opencode") }
+    var key by remember { mutableStateOf("") }
+    var keyMsg by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { vm.refreshOcSessions(); vm.refreshOcProviders() }
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("Диалоги OpenCode") },
@@ -46,6 +49,47 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
             )
             if (vm.ocSessionId != null) Text("Сейчас выбрана: ${vm.ocSessionTitle}", style = MaterialTheme.typography.labelLarge)
             OutlinedButton(onClick = { vm.newOcSession(); onOpened() }, modifier = Modifier.fillMaxWidth()) { Text("Начать новую беседу") }
+            androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Ключ OpenCode", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Ключ с opencode.ai (Zen или Go) или любого провайдера записывается в файл OpenCode внутри Linux. После этого модели этого провайдера работают в режиме OpenCode. Ключи не показываются.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    if (vm.ocProviders.isNotEmpty()) {
+                        vm.ocProviders.forEach { p ->
+                            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                Text("✓ $p", Modifier.weight(1f))
+                                TextButton(onClick = { vm.ocAuthRemove(p) }) { Text("Убрать") }
+                            }
+                        }
+                    } else Text("Подключённых ключей нет.", style = MaterialTheme.typography.labelSmall)
+                    androidx.compose.material3.OutlinedTextField(
+                        value = provider, onValueChange = { provider = it }, singleLine = true,
+                        label = { Text("Провайдер (opencode, deepseek, openai…)") }, modifier = Modifier.fillMaxWidth(),
+                    )
+                    androidx.compose.material3.OutlinedTextField(
+                        value = key, onValueChange = { key = it }, singleLine = true,
+                        label = { Text("Ключ") }, modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    )
+                    Button(onClick = { keyMsg = vm.ocAuthSet(provider, key); key = "" }, enabled = key.isNotBlank()) { Text("Сохранить ключ") }
+                    keyMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+            androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Карточки действий (экспериментально)", style = MaterialTheme.typography.titleSmall)
+                            Text("Правки и команды OpenCode показываются карточками, как у обычного агента. Формат его вывода в документации не описан, если что-то выглядит странно, выключи.", style = MaterialTheme.typography.bodySmall)
+                        }
+                        androidx.compose.material3.Switch(checked = vm.ocCards, onCheckedChange = { vm.setOcCardsValue(it) })
+                    }
+                    Text("Статистика запросов", style = MaterialTheme.typography.titleSmall)
+                    Text(vm.ocStatsText(), style = MaterialTheme.typography.bodySmall)
+                }
+            }
             vm.ocSessionsMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(vm.ocSessions) { s ->

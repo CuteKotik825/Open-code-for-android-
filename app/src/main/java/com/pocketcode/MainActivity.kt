@@ -57,6 +57,24 @@ class MainActivity : ComponentActivity() {
 
     private val pocketApp: PocketCodeApp get() = application as PocketCodeApp
 
+    private var locked by androidx.compose.runtime.mutableStateOf(false)
+    private var stopAt = 0L
+    private val unlockLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+            if (res.resultCode == RESULT_OK) locked = false
+        }
+
+    private fun lockAvailable(): Boolean {
+        val km = getSystemService(android.app.KeyguardManager::class.java)
+        return controller.appLock && km != null && km.isDeviceSecure
+    }
+
+    private fun askUnlock() {
+        val km = getSystemService(android.app.KeyguardManager::class.java)
+        val i = km?.createConfirmDeviceCredentialIntent("PocketCode", "Подтверди, что это ты")
+        if (i == null) locked = false else runCatching { unlockLauncher.launch(i) }.onFailure { locked = false }
+    }
+
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -105,6 +123,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleIntent(intent)
+        locked = lockAvailable()
         requestNotificationPermission()
         val actions = FileActions(
             pickFiles = { pickFiles.launch(arrayOf("*/*")) },
@@ -116,6 +135,35 @@ class MainActivity : ComponentActivity() {
         setContent {
             AppTheme {
                 val vm = pocketApp.current
+                if (locked) {
+                    androidx.compose.runtime.LaunchedEffect(Unit) { askUnlock() }
+                    androidx.compose.foundation.layout.Column(
+                        Modifier.fillMaxSize().padding(24.dp),
+                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                    ) {
+                        Text("PocketCode заблокирован", style = MaterialTheme.typography.titleLarge)
+                        androidx.compose.material3.Button(onClick = { askUnlock() }, modifier = Modifier.padding(top = 16.dp)) { Text("Разблокировать") }
+                    }
+                    return@AppTheme
+                }
+                val crashFile = remember { java.io.File(filesDir, "crashed.flag") }
+                var crashed by remember { mutableStateOf(crashFile.exists()) }
+                if (crashed) {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { crashFile.delete(); crashed = false },
+                        title = { Text("Прошлый запуск завершился ошибкой") },
+                        text = { Text("Можно скопировать отчёт (ключи в нём скрыты) и прислать разработчику. Он же есть в «Диагностике».") },
+                        confirmButton = {
+                            androidx.compose.material3.TextButton(onClick = {
+                                val cm = getSystemService(android.content.ClipboardManager::class.java)
+                                cm?.setPrimaryClip(android.content.ClipData.newPlainText("report", vm.buildReport()))
+                                crashFile.delete(); crashed = false
+                            }) { Text("Скопировать отчёт") }
+                        },
+                        dismissButton = { androidx.compose.material3.TextButton(onClick = { crashFile.delete(); crashed = false }) { Text("Закрыть") } },
+                    )
+                }
                 var screen by remember { mutableStateOf(Screen.CHAT) }
                 val pv = vm.previewUrl
                 val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 840
@@ -305,6 +353,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         pocketApp.tabs.forEach { it.appVisible = true }
+        if (stopAt > 0 && System.currentTimeMillis() - stopAt > 60_000 && lockAvailable()) locked = true
     }
 
     override fun onResume() {
@@ -315,6 +364,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         pocketApp.tabs.forEach { it.appVisible = false }
+        stopAt = System.currentTimeMillis()
         super.onStop()
     }
 
