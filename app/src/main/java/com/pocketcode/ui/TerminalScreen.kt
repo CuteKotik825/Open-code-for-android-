@@ -50,6 +50,15 @@ fun TerminalScreen(vm: ChatController, onBack: () -> Unit) {
         Column(Modifier.padding(pad).fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (vm.term.isEmpty()) item {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Официальный OpenCode можно запустить внутри Linux (нужны: Linux включён и «Установить python, git, nodejs» в разделе «Проекты»). Это его собственный клиент, поэтому его бесплатные модели работают так же, как на ПК, но скорость в proot ниже и на телефоне это не проверено.", style = MaterialTheme.typography.bodySmall)
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            AssistChip(onClick = { vm.termRun("npm install -g opencode-ai 2>&1 | tail -n 20", 900) }, label = { Text("Установить OpenCode") })
+                            AssistChip(onClick = { vm.termRun("opencode --version") }, label = { Text("Версия") })
+                            AssistChip(onClick = { vm.termRun("opencode models 2>&1 | head -n 40", 300) }, label = { Text("Список моделей") })
+                            AssistChip(onClick = { cmd = "opencode run \"привет\"" }, label = { Text("Пример запуска") })
+                        }
+                    }
                     Text("Команды идут в ту же среду, что и у агента (Linux, если включён, иначе Android-оболочка), в папке проекта. Лимит одной команды 2 минуты.", style = MaterialTheme.typography.bodySmall)
                 }
                 items(vm.term.toList()) { e ->

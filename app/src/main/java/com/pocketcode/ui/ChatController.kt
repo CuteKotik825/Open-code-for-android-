@@ -1370,7 +1370,7 @@ class ChatController(
     var termJob: kotlinx.coroutines.Job? = null
     val termBusy: Boolean get() = termJob?.isActive == true
 
-    fun termRun(cmd: String) {
+    fun termRun(cmd: String, timeoutSec: Long = 120) {
         val c = cmd.trim().ifEmpty { return }
         if (termBusy) return
         val e = TermEntry(c)
@@ -1378,7 +1378,7 @@ class ChatController(
         while (term.size > 60) term.removeAt(0)
         termJob = scope.launch {
             e.out = try {
-                Secrets.mask(withContext(Dispatchers.IO) { shell.run(c, workspace.root, 120) }.take(60_000))
+                Secrets.mask(withContext(Dispatchers.IO) { shell.run(c, workspace.root, timeoutSec) }.take(60_000))
             } catch (x: kotlinx.coroutines.CancellationException) {
                 "(остановлено)"
             } catch (x: Throwable) {
