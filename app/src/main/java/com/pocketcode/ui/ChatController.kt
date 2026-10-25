@@ -2154,6 +2154,7 @@ class ChatController(
                     lastRunFailed = true
                     items += UiItem.Error(
                         "OpenCode завершился с кодом $code." +
+                            (if (buf.contains("Free usage limit", ignoreCase = true)) "\n\n💡 Это лимит бесплатных моделей на сервере OpenCode, а не ошибка приложения. Размер лимита и время сброса OpenCode не сообщает. Варианты: подождать и попробовать позже, оформить их платный тариф (opencode.ai/go) или переключиться на другого провайдера: Gemini, OpenRouter :free, Groq, NVIDIA (☰ → Настройки → Шаблоны провайдеров), выключив режим OpenCode." else "") +
                             (if (buf.isEmpty() || buf.contains("not found")) "\n\n💡 Похоже, OpenCode не установлен: ☰ → Терминал → «Установить OpenCode». Для его бесплатных моделей может понадобиться вход: в терминале `opencode auth login`." else ""),
                     )
                 }
