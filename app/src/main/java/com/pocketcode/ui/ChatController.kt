@@ -744,6 +744,7 @@ class ChatController(
     // ---------- сессии ----------
 
     fun newChat() {
+        ocContinue = false
         cancelRun()
         todos = emptyList()
         changes.clear()
@@ -1853,9 +1854,91 @@ class ChatController(
         return Block.Image("image/jpeg", android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP))
     }
 
+    // ---------- движок OpenCode (официальный клиент внутри Linux) ----------
+
+    var openCodeMode by mutableStateOf(false)
+    var ocModel by mutableStateOf(settingsStore.rawGet("ocModel") ?: "")
+    private var ocContinue = false
+
+    fun setOcModelValue(v: String) { ocModel = v; settingsStore.rawPut("ocModel", v) }
+
+    private val ansi = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]")
+
+    private fun sendViaOpenCode(prompt: String) {
+        if (!linuxActive) {
+            items += UiItem.Error("Режим OpenCode работает только в Linux: включи его и установи в разделе «Проекты», затем «Терминал» → «Установить OpenCode».")
+            return
+        }
+        if (currentId == null) currentId = UUID.randomUUID().toString()
+        items += UiItem.User(prompt, 0)
+        val reply = UiItem.Assistant("")
+        items += reply
+        val idx = items.lastIndex
+        streamingIndex = null
+        lastRunFailed = false
+        running = true
+        persist()
+        startService()
+        Notifier.clearAlert(app)
+        val q = "'" + prompt.replace("'", "'\\''") + "'"
+        val model = ocModel.trim().takeIf { it.isNotEmpty() }?.let { " -m '" + it.replace("'", "") + "'" } ?: ""
+        val cmd = "opencode run" + (if (ocContinue) " --continue" else "") + model + " " + q
+        val myRun = ++runId
+        job = scope.launch {
+            var proc: Process? = null
+            try {
+                runCatching { snapshots.create(currentProject, workspace.root, prompt) }
+                val pb = linuxShell.builder(cmd, workspace.root).redirectErrorStream(true)
+                proc = pb.start()
+                val p = proc
+                val buf = StringBuilder()
+                val reader = launch(Dispatchers.IO) {
+                    val br = p.inputStream.bufferedReader()
+                    while (true) {
+                        val line = br.readLine() ?: break
+                        val clean = Secrets.mask(ansi.replace(line, "").substringAfterLast('\r'))
+                        if (clean.isBlank() && buf.isEmpty()) continue
+                        buf.append(clean).append('\n')
+                        val snapshot = buf.toString().takeLast(60_000)
+                        withContext(Dispatchers.Main) { if (idx < items.size) items[idx] = UiItem.Assistant(snapshot) }
+                    }
+                }
+                try {
+                    reader.join()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    p.destroyForcibly()
+                    throw e
+                }
+                val code = withContext(Dispatchers.IO) { p.waitFor() }
+                ocContinue = true
+                if (code != 0) {
+                    lastRunFailed = true
+                    items += UiItem.Error(
+                        "OpenCode завершился с кодом $code." +
+                            (if (buf.isEmpty() || buf.contains("not found")) "\n\n💡 Похоже, OpenCode не установлен: ☰ → Терминал → «Установить OpenCode». Для его бесплатных моделей может понадобиться вход: в терминале `opencode auth login`." else ""),
+                    )
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                lastRunFailed = true
+                items += UiItem.Error("Не удалось запустить OpenCode: ${e.message ?: e}")
+            } finally {
+                proc?.destroyForcibly()
+                if (myRun == runId) {
+                    finishRun()
+                    val next = if (!lastRunFailed && queue.isNotEmpty()) queue.removeAt(0).also { saveQueue() } else null
+                    if (next != null) send(next)
+                    else if (!appVisible) Notifier.alert(app, "OpenCode закончил", (items.getOrNull(idx) as? UiItem.Assistant)?.text?.takeLast(200) ?: "Готово")
+                }
+            }
+        }
+    }
+
     fun send(text: String, auto: Boolean = false) {
         val trimmed = text.trim()
         if ((trimmed.isEmpty() && pendingImages.isEmpty()) || running) return
+        if (openCodeMode && trimmed.isNotEmpty() && !trimmed.startsWith("/")) { sendViaOpenCode(extensions.expand(trimmed) ?: trimmed); return }
         if (settings.apiKey.isBlank()) {
             items += UiItem.Error("Сначала укажи API-ключ в настройках (шестерёнка сверху).")
             return

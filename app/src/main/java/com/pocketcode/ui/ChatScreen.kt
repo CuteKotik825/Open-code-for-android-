@@ -240,6 +240,12 @@ fun ChatScreen(
                     onClick = { vm.planMode = !vm.planMode },
                     label = { Text("План") },
                 )
+                androidx.compose.material3.FilterChip(
+                    selected = vm.openCodeMode,
+                    onClick = { vm.openCodeMode = !vm.openCodeMode },
+                    label = { Text("OpenCode") },
+                    modifier = Modifier.padding(start = 6.dp),
+                )
                 if (vm.todos.isNotEmpty()) {
                     val done = vm.todos.count { it.startsWith("[x]", true) }
                     TextButton(onClick = { showTodos = !showTodos }) { Text("Задачи $done/${vm.todos.size}") }
@@ -248,6 +254,20 @@ fun ChatScreen(
                 if (vm.changes.isNotEmpty()) {
                     TextButton(onClick = { showChanges = true }) { Text("Правки (${vm.changes.size})") }
                 }
+            }
+            if (vm.openCodeMode) {
+                OutlinedTextField(
+                    value = vm.ocModel,
+                    onValueChange = { vm.setOcModelValue(it) },
+                    label = { Text("Режим OpenCode: модель (провайдер/модель), пусто — по умолчанию") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                )
+                Text(
+                    "Сообщения уходят официальному OpenCode внутри Linux (opencode run). Память чата ведёт он сам, ключи PocketCode не используются.",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                )
             }
             if (showTodos && vm.todos.isNotEmpty()) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
