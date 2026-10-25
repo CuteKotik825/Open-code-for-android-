@@ -2022,7 +2022,12 @@ class ChatController(
 
     var openCodeMode by mutableStateOf(false)
     var ocModel by mutableStateOf(settingsStore.rawGet("ocModel") ?: "")
-    private var ocContinue = false
+    private var ocContinue = !isTab && settingsStore.rawGet("ocContinue") == "1"
+
+    private fun setOcContinue(v: Boolean) {
+        ocContinue = v
+        if (!isTab) settingsStore.rawPut("ocContinue", if (v) "1" else "0")
+    }
 
     fun setOcModelValue(v: String) { ocModel = v; settingsStore.rawPut("ocModel", v) }
 
@@ -2082,7 +2087,7 @@ class ChatController(
                     throw e
                 }
                 val code = withContext(Dispatchers.IO) { p.waitFor() }
-                ocContinue = true
+                setOcContinue(true)
                 if (code != 0) {
                     lastRunFailed = true
                     items += UiItem.Error(
