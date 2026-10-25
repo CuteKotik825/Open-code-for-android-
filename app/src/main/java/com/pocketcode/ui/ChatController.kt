@@ -1869,9 +1869,12 @@ class ChatController(
     var ocSessionTitle by mutableStateOf("")
         private set
 
+    /** Вырезает JSON из вывода команды: отбрасывает всё до первой скобки и после последней (например, «[код выхода: 0]»). */
     private fun jsonStart(text: String): String {
         val i = text.indexOfFirst { it == '[' || it == '{' }
-        return if (i < 0) text else text.substring(i)
+        if (i < 0) return text
+        val end = if (text[i] == '[') text.lastIndexOf(']') else text.lastIndexOf('}')
+        return if (end > i) text.substring(i, end + 1) else text.substring(i)
     }
 
     private fun fmtTime(e: kotlinx.serialization.json.JsonElement?): String {
