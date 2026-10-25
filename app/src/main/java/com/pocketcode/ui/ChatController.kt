@@ -1870,7 +1870,9 @@ class ChatController(
         private set
 
     /** Вырезает JSON из вывода команды: отбрасывает всё до первой скобки и после последней (например, «[код выхода: 0]»). */
-    private fun jsonStart(text: String): String {
+    private fun jsonStart(raw: String): String {
+        // Терминал дописывает служебные строки вида «[код выхода: 0]»: убираем их до разбора
+        val text = raw.lines().filterNot { it.trim().startsWith("[код выхода") || it.trim().startsWith("[таймаут") }.joinToString("\n")
         val i = text.indexOfFirst { it == '[' || it == '{' }
         if (i < 0) return text
         val end = if (text[i] == '[') text.lastIndexOf(']') else text.lastIndexOf('}')
