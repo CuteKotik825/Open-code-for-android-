@@ -42,7 +42,7 @@ fun TerminalScreen(vm: ChatController, onBack: () -> Unit) {
     LaunchedEffect(vm.term.size, vm.term.lastOrNull()?.out) { if (vm.term.isNotEmpty()) list.scrollToItem(vm.term.lastIndex) }
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("Терминал · ${vm.currentProject}") },
+            title = { Text("Терминал", maxLines = 1) },
             navigationIcon = { TextButton(onClick = onBack) { Text("Назад") } },
             actions = { TextButton(onClick = { vm.term.clear() }) { Text("Очистить") } },
         )
@@ -53,13 +53,17 @@ fun TerminalScreen(vm: ChatController, onBack: () -> Unit) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Официальный OpenCode можно запустить внутри Linux (нужны: Linux включён и «Установить python, git, nodejs» в разделе «Проекты»). Это его собственный клиент, поэтому его бесплатные модели работают так же, как на ПК, но скорость в proot ниже и на телефоне это не проверено.", style = MaterialTheme.typography.bodySmall)
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            AssistChip(onClick = { vm.termRun("npm install -g opencode-ai 2>&1 | tail -n 20", 900) }, label = { Text("Установить OpenCode") })
+                            AssistChip(onClick = { vm.termRun(
+                                "case \"\$(uname -m)\" in aarch64|arm64) P=opencode-linux-arm64-musl;; *) P=opencode-linux-x64-musl;; esac; " +
+                                    "npm install -g --force opencode-ai \$P > /tmp/oc-install.log 2>&1; echo \"код установки: \$?\"; tail -n 15 /tmp/oc-install.log; opencode --version",
+                                900,
+                            ) }, label = { Text("Установить OpenCode") })
                             AssistChip(onClick = { vm.termRun("opencode --version") }, label = { Text("Версия") })
                             AssistChip(onClick = { vm.termRun("opencode models 2>&1 | head -n 40", 300) }, label = { Text("Список моделей") })
                             AssistChip(onClick = { cmd = "opencode run \"привет\"" }, label = { Text("Пример запуска") })
                         }
                     }
-                    Text("Команды идут в ту же среду, что и у агента (Linux, если включён, иначе Android-оболочка), в папке проекта. Лимит одной команды 2 минуты.", style = MaterialTheme.typography.bodySmall)
+                    Text("Команды идут в ту же среду, что и у агента (Linux, если включён, иначе Android-оболочка), в папке проекта. Лимит одной команды 10 минут (кнопка «Стоп» прервёт раньше).", style = MaterialTheme.typography.bodySmall)
                 }
                 items(vm.term.toList()) { e ->
                     Column {

@@ -1371,7 +1371,7 @@ class ChatController(
     var termJob: kotlinx.coroutines.Job? = null
     val termBusy: Boolean get() = termJob?.isActive == true
 
-    fun termRun(cmd: String, timeoutSec: Long = 120) {
+    fun termRun(cmd: String, timeoutSec: Long = 600) {
         val c = cmd.trim().ifEmpty { return }
         if (termBusy) return
         val e = TermEntry(c)
