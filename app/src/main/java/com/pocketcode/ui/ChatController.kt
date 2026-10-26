@@ -1972,13 +1972,16 @@ class ChatController(
 
     private fun loadOcPreviews() {
         ocPreviewJob?.cancel()
-        val list = ocSessions.take(20).filter { it.id !in ocPreviews }
+        val list = ocSessions.take(8).filter { it.id !in ocPreviews }
         ocPreviewJob = scope.launch {
             for (s in list) {
                 val raw = try { ocExport(s.id, 60) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Throwable) { continue }
-                val texts = mutableListOf<Pair<String?, String>>()
-                try { collectTexts(kotlinx.serialization.json.Json.parseToJsonElement(jsonStart(raw)), null, texts) } catch (e: Throwable) { texts += scanTexts(raw) }
-                val last = texts.lastOrNull { it.first != "user" } ?: texts.lastOrNull()
+                val last = withContext(Dispatchers.Default) {
+                    val t = scanTexts(raw.takeLast(300_000))
+                    (t.lastOrNull { it.first != "user" } ?: t.lastOrNull())
+                }
+                val texts = listOfNotNull(last)
+                val lastText = last?.second
                 ocPreviews[s.id] = Secrets.mask(last?.second.orEmpty()).replace(Regex("\\s+"), " ").trim().takeLast(160).ifEmpty { "(пусто)" }
             }
         }
@@ -2165,20 +2168,27 @@ class ChatController(
             }
             val shown = mutableListOf<UiItem>()
             var parseNote = ""
-            try {
-                val texts = mutableListOf<Pair<String?, String>>()
-                collectTexts(kotlinx.serialization.json.Json.parseToJsonElement(jsonStart(raw)), null, texts)
-                for ((role, text) in texts) shown += if (role == "user") UiItem.User(Secrets.mask(text), 0) else UiItem.Assistant(Secrets.mask(text))
-            } catch (e: Throwable) {
-                // Строгий разбор не удался (обрезанный или нестандартный JSON): вытаскиваем реплики по шаблону
-                val found = scanTexts(raw)
-                for ((role, text) in found) shown += if (role == "user") UiItem.User(Secrets.mask(text), 0) else UiItem.Assistant(Secrets.mask(text))
-                if (found.isEmpty()) parseNote = "Не разобрал вывод opencode export (${e.javaClass.simpleName}: ${(e.message ?: "").take(120)}). Размер ${raw.length} симв., конец:\n" + Secrets.mask(raw.takeLast(200))
+            // Разбор тяжёлый, а беседа может быть огромной: делаем это вне главного потока и берём только хвост
+            val found = withContext(Dispatchers.Default) {
+                try {
+                    if (raw.length > 2_000_000) throw IllegalStateException("big")
+                    val texts = mutableListOf<Pair<String?, String>>()
+                    collectTexts(kotlinx.serialization.json.Json.parseToJsonElement(jsonStart(raw)), null, texts)
+                    texts
+                } catch (e: Throwable) {
+                    val t = scanTexts(if (raw.length > 1_500_000) raw.takeLast(1_500_000) else raw)
+                    if (t.isEmpty()) parseNote = "Не разобрал вывод opencode export (${e.javaClass.simpleName}). Размер ${raw.length} симв."
+                    t
+                }
+            }
+            for ((role, text) in found.takeLast(60)) {
+                val tx = Secrets.mask(if (text.length > 6000) text.take(6000) + "\n…(обрезано)" else text)
+                shown += if (role == "user") UiItem.User(tx, 0) else UiItem.Assistant(tx)
             }
             items.clear()
             items += UiItem.Notice("— Беседа OpenCode: ${s.title}. Новые сообщения продолжат её —")
             if (shown.isEmpty()) items += UiItem.Notice("(переписку показать не удалось, но беседа выбрана и продолжится)" + if (parseNote.isNotEmpty()) "\n$parseNote" else "\nОтвет opencode export (${raw.length} симв.): " + Secrets.mask(raw.take(300)))
-            else items.addAll(shown.takeLast(80))
+            else items.addAll(shown)
             if (currentId == null) currentId = UUID.randomUUID().toString()
             openCodeMode = true
             persist()
