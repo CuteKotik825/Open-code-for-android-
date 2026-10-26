@@ -52,6 +52,7 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
             )
             if (vm.ocSessionId != null) Text("Сейчас выбрана: ${vm.ocSessionTitle}", style = MaterialTheme.typography.labelLarge)
             OutlinedButton(onClick = { vm.newOcSession(); onOpened() }, modifier = Modifier.fillMaxWidth()) { Text("Начать новую беседу") }
+            OutlinedButton(onClick = { vm.resetSessionAndChat(); onOpened() }, enabled = !vm.running, modifier = Modifier.fillMaxWidth()) { Text("Сбросить id сессии и чат (анонимно)") }
             androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Аккаунты OpenCode", style = MaterialTheme.typography.titleSmall)

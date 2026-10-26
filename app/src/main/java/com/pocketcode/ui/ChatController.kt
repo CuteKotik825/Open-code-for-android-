@@ -749,6 +749,15 @@ class ChatController(
 
     // ---------- сессии ----------
 
+    /** Полный сброс: новый чат PocketCode и новая беседа OpenCode (новый id сессии, без продолжения старой). */
+    fun resetSessionAndChat() {
+        newChat()
+        ocSessionId = null
+        ocSessionTitle = ""
+        setOcContinue(false)
+        items += UiItem.Notice("— Сессия и чат сброшены: следующий запрос OpenCode пойдёт с новым id сессии и без прежней истории —")
+    }
+
     fun newChat() {
         ocContinue = false
         cancelRun()

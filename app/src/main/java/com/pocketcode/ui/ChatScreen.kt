@@ -154,6 +154,7 @@ fun ChatScreen(
                             DropdownMenuItem(text = { Text("Git") }, onClick = { moreMenu = false; onOpenGit() })
                             DropdownMenuItem(text = { Text("Что в контексте") }, onClick = { moreMenu = false; onOpenContext() })
                             DropdownMenuItem(text = { Text("Экспорт чата в Markdown") }, onClick = { moreMenu = false; onExport() })
+                            if (vm.openCodeMode) DropdownMenuItem(text = { Text("Сбросить сессию и чат") }, onClick = { moreMenu = false; vm.resetSessionAndChat() })
                             DropdownMenuItem(text = { Text("Поиск по чату") }, onClick = { moreMenu = false; searchQ = ""; dlg = "search" })
                             DropdownMenuItem(text = { Text("Заметки проекта") }, onClick = { moreMenu = false; notesDraft = vm.notesText(); dlg = "notes" })
                             DropdownMenuItem(text = { Text("Мои шаблоны") }, onClick = { moreMenu = false; newTpl = ""; dlg = "tpl" })
