@@ -749,13 +749,34 @@ class ChatController(
 
     // ---------- сессии ----------
 
-    /** Полный сброс: новый чат PocketCode и новая беседа OpenCode (новый id сессии, без продолжения старой). */
-    fun resetSessionAndChat() {
+    /** Текст, который уходит первым в следующий запрос новой беседы OpenCode (перенос контекста при сбросе). */
+    private var ocCarry: String? = null
+    private var ocLastReasoning = ""
+
+    /**
+     * Сброс: новый чат PocketCode и новая беседа OpenCode (новый id сессии).
+     * keepLast=true оставляет последнее сообщение, рассуждение и ответ: они видны в чате и уходят в первом запросе новой беседы.
+     */
+    fun resetSessionAndChat(keepLast: Boolean = true) {
+        val lastUser = (items.lastOrNull { it is UiItem.User } as? UiItem.User)?.text
+        val lastAnswer = (items.lastOrNull { it is UiItem.Assistant && !it.text.startsWith("⏳") } as? UiItem.Assistant)?.text
+        val reasoning = ocLastReasoning
         newChat()
         ocSessionId = null
         ocSessionTitle = ""
         setOcContinue(false)
-        items += UiItem.Notice("— Сессия и чат сброшены: следующий запрос OpenCode пойдёт с новым id сессии и без прежней истории —")
+        ocCtxTokens = 0
+        ocCarry = null
+        if (keepLast && (lastUser != null || lastAnswer != null)) {
+            val sb = StringBuilder("[Контекст из предыдущей беседы: сессия была сброшена, вот самое важное]\n")
+            if (lastUser != null) sb.append("Моё последнее сообщение:\n").append(lastUser.take(3000)).append("\n\n")
+            if (reasoning.isNotBlank()) sb.append("Твоё последнее рассуждение:\n").append(reasoning.take(2000)).append("\n\n")
+            if (lastAnswer != null) sb.append("Твой последний ответ:\n").append(lastAnswer.take(3000)).append("\n")
+            ocCarry = sb.toString()
+            if (lastUser != null) items += UiItem.User(lastUser.take(3000), 0)
+            if (lastAnswer != null) items += UiItem.Assistant(lastAnswer.take(3000))
+            items += UiItem.Notice("— Сессия сброшена: новый id. Последнее сообщение и ответ перенесутся в следующий запрос —")
+        } else items += UiItem.Notice("— Сессия и чат сброшены полностью: новый id, без истории —")
     }
 
     fun newChat() {
@@ -985,7 +1006,8 @@ class ChatController(
 
     private fun saveQueue() { if (!isTab) settingsStore.saveQueue(queue.toList()) }
 
-    private var lastRunFailed = false
+    var lastRunFailed by mutableStateOf(false)
+        private set
 
     /** Сообщение во время работы агента: он прочитает его перед следующим шагом. */
     fun sendWhileRunning(text: String) {
@@ -2194,6 +2216,7 @@ class ChatController(
                 val tx = Secrets.mask(if (text.length > 6000) text.take(6000) + "\n…(обрезано)" else text)
                 shown += if (role == "user") UiItem.User(tx, 0) else UiItem.Assistant(tx)
             }
+            ocCtxTokens = raw.length / 4
             items.clear()
             items += UiItem.Notice("— Беседа OpenCode: ${s.title}. Новые сообщения продолжат её —")
             if (shown.isEmpty()) items += UiItem.Notice("(переписку показать не удалось, но беседа выбрана и продолжится)" + if (parseNote.isNotEmpty()) "\n$parseNote" else "\nОтвет opencode export (${raw.length} симв.): " + Secrets.mask(raw.take(300)))
@@ -2343,6 +2366,76 @@ class ChatController(
 
     private val ansi = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]")
 
+    // --- размер контекста, сжатие, автопереключение аккаунтов ---
+    /** Примерный размер контекста беседы OpenCode в токенах (точный из событий или оценка по экспорту). */
+    var ocCtxTokens by mutableIntStateOf(0)
+    private var ocStepCtx = 0
+    private var ocCompact = false
+    var ocAutoSwitch by mutableStateOf(settingsStore.rawGet("ocAutoSwitch") == "1")
+        private set
+    fun setOcAutoSwitchValue(v: Boolean) { ocAutoSwitch = v; settingsStore.rawPut("ocAutoSwitch", if (v) "1" else "0") }
+    private var ocSwitchTries = 0
+    private var ocRetryDelay = 15_000L
+
+    /** Просит OpenCode кратко пересказать беседу, затем начинает новую беседу с этим пересказом. */
+    fun compactOcSession() {
+        if (running || !linuxActive) return
+        ocCompact = true
+        sendViaOpenCode("Кратко и по делу перескажи нашу беседу для переноса в новую сессию (не больше 300 слов): цель, что уже сделано, текущее состояние, что осталось. Инструменты не используй.")
+    }
+
+    private fun accStats(): MutableMap<String, List<Long>> = runCatching {
+        kotlinx.serialization.json.Json.decodeFromString<Map<String, List<Long>>>(settingsStore.rawGet("ocAccStats") ?: "{}").toMutableMap()
+    }.getOrDefault(mutableMapOf())
+
+    private fun accBump(hit: Boolean) {
+        val k = ocActiveAccount.ifBlank { "—" }
+        val m = accStats()
+        val o = m[k] ?: listOf(0L, 0L)
+        m[k] = if (hit) listOf(o[0], o[1] + 1) else listOf(o[0] + 1, o[1])
+        settingsStore.rawPut("ocAccStats", kotlinx.serialization.json.Json.encodeToString<Map<String, List<Long>>>(m))
+        ocStatsVersion++
+    }
+
+    fun accStatsText(name: String): String {
+        ocStatsVersion
+        val o = accStats()[name] ?: return "запросов 0, лимитов 0"
+        return "запросов ${o[0]}, лимитов ${o[1]}"
+    }
+
+    /** Повтор последнего сообщения после ошибки. */
+    fun retryLast() {
+        if (running) return
+        val i = items.indexOfLast { it is UiItem.User }
+        if (i < 0) return
+        val text = (items[i] as UiItem.User).text
+        while (items.size > i) items.removeAt(items.lastIndex)
+        lastRunFailed = false
+        send(text)
+    }
+
+    /** Экспорт беседы OpenCode в Markdown-файл. */
+    fun exportOcSessionTo(s: OcSession, uri: Uri) {
+        if (ocSessionsBusy) return
+        ocSessionsBusy = true
+        ocSessionsMsg = "Готовлю файл…"
+        scope.launch {
+            val raw = runCatching { ocExport(s.id, 180) }.getOrDefault("")
+            val md = withContext(Dispatchers.Default) {
+                val texts = try {
+                    val l = mutableListOf<Pair<String?, String>>()
+                    collectTexts(kotlinx.serialization.json.Json.parseToJsonElement(jsonStart(raw)), null, l); l
+                } catch (e: Throwable) { scanTexts(raw) }
+                val sb = StringBuilder("# Беседа OpenCode: ${s.title}\n\n")
+                for ((role, t) in texts) sb.append(if (role == "user") "## 🧑 Вы\n\n" else "## 🤖 Модель\n\n").append(t).append("\n\n")
+                Secrets.mask(sb.toString())
+            }
+            val ok = withContext(Dispatchers.IO) { runCatching { app.contentResolver.openOutputStream(uri)?.use { it.write(md.toByteArray()) } }.isSuccess }
+            ocSessionsMsg = if (ok) "Беседа сохранена в Markdown." else "Не удалось сохранить файл."
+            ocSessionsBusy = false
+        }
+    }
+
     // --- состояние и статистика режима OpenCode ---
     var ocCards by mutableStateOf(settingsStore.rawGet("ocCards") == "1")
     fun setOcCardsValue(v: Boolean) { ocCards = v; settingsStore.rawPut("ocCards", if (v) "1" else "0") }
@@ -2450,6 +2543,10 @@ class ChatController(
 
     fun ocAccountSwitch(name: String): String {
         if (running) return "Дождись конца задачи."
+        return doAccountSwitch(name)
+    }
+
+    private fun doAccountSwitch(name: String): String {
         val src = File(ocAccDir, "$name.json")
         if (!src.exists()) return "Аккаунт не найден."
         return try {
@@ -2496,6 +2593,7 @@ class ChatController(
     }
 
     private val netErr = Regex("EAI_AGAIN|ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|fetch failed|socket hang up|Unable to connect|network is unreachable", RegexOption.IGNORE_CASE)
+    private val rate429 = Regex("\\b429\\b|rate.?limit|too many requests", RegexOption.IGNORE_CASE)
     private var ocRetries = 0
 
     /** Разбор одной строки `opencode run --format json`: возвращает true, если строка обработана как событие. */
@@ -2537,7 +2635,12 @@ class ChatController(
                     ocTokIn += n(tk, "input"); ocTokOut += n(tk, "output") + n(tk, "reasoning")
                     ocTokCache += n(tk["cache"] as? kotlinx.serialization.json.JsonObject, "read")
                     ocTokSeen = true
+                    ocStepCtx = n(tk, "input") + n(tk["cache"] as? kotlinx.serialization.json.JsonObject, "read")
                 }
+            }
+            "reasoning" -> {
+                val text = str(part, "text").orEmpty()
+                if (text.isNotBlank()) ocLastReasoning = Secrets.mask(text).takeLast(2000)
             }
             "text" -> {
                 val text = str(part, "text").orEmpty()
@@ -2567,7 +2670,7 @@ class ChatController(
             return
         }
         if (currentId == null) currentId = UUID.randomUUID().toString()
-        if (!isRetry) { items += UiItem.User(prompt, 0); ocRetries = 0; ocAddLong("ocRuns", System.currentTimeMillis(), 300); ocStatsVersion++ }
+        if (!isRetry) { items += UiItem.User(prompt, 0); ocRetries = 0; ocSwitchTries = 0; ocAddLong("ocRuns", System.currentTimeMillis(), 300); accBump(false) }
         val reply = UiItem.Assistant("⏳ OpenCode запускается и думает… (в Linux на телефоне первый ответ может идти минуту)")
         items += reply
         val idx = items.lastIndex
@@ -2578,7 +2681,8 @@ class ChatController(
         persist()
         startService()
         Notifier.clearAlert(app)
-        val q = "'" + prompt.replace("'", "'\\''") + "'"
+        val sentPrompt = ocCarry?.let { it + "\n---\n" + prompt }?.also { ocCarry = null } ?: prompt
+        val q = "'" + sentPrompt.replace("'", "'\\''") + "'"
         val model = ocModel.trim().takeIf { it.isNotEmpty() }?.let { " -m '" + it.replace("'", "") + "'" } ?: ""
         // /tmp разрешён всегда (временные файлы), остальное вне проекта OpenCode по-прежнему отклоняет
         val perm = "export OPENCODE_PERMISSION='{\"external_directory\":{\"/tmp\":\"allow\",\"/tmp/**\":\"allow\"}}'; "
@@ -2591,7 +2695,7 @@ class ChatController(
         val cmd = perm + "opencode run" + (if (cards) " --format json" else "") + resume + model + " " + q
         val myRun = ++runId
         var retryScheduled = false
-        ocTokIn = 0; ocTokOut = 0; ocTokCache = 0; ocTokSeen = false
+        ocTokIn = 0; ocTokOut = 0; ocTokCache = 0; ocTokSeen = false; ocStepCtx = 0; ocLastReasoning = ""
         job = scope.launch {
             var proc: Process? = null
             try {
@@ -2662,13 +2766,46 @@ class ChatController(
                 // Токены: точные из событий OpenCode, иначе оценка по длине текста (≈3 символа на токен)
                 if (ocTokSeen) recordUsage(ocTokIn, ocTokOut, ocTokCache)
                 else if (code == 0 && text.isNotBlank()) recordUsage(prompt.length / 3 + 1, text.length / 3 + 1, 0)
-                if (code != 0 && netErr.containsMatchIn(text) && ocRetries < 4) {
+                if (ocTokSeen && ocStepCtx > 0) ocCtxTokens = ocStepCtx
+                val freeLimit = text.contains("Free usage limit", ignoreCase = true)
+                val rate = !freeLimit && rate429.containsMatchIn(text)
+                val limited = freeLimit || rate
+                if (code == 0 && ocCompact) {
+                    ocCompact = false
+                    val summary = (items.lastOrNull { it is UiItem.Assistant } as? UiItem.Assistant)?.text.orEmpty()
+                    if (summary.isNotBlank()) {
+                        ocSessionId = null; ocSessionTitle = ""; setOcContinue(false)
+                        ocCarry = "[Сводка предыдущей беседы, сессия сжата]\n" + summary.take(6000)
+                        ocCtxTokens = 0
+                        items += UiItem.Notice("— Беседа сжата: следующий запрос начнёт новую сессию с этой сводкой —")
+                    }
+                } else if (code == 0 && ocCtxTokens > 100_000) {
+                    items += UiItem.Notice("Контекст беседы уже ≈ ${ocCtxTokens / 1000} тыс. токенов: запросы тяжёлые и быстрее упираются в лимиты. Можно «Сжать» беседу или сбросить сессию.")
+                }
+                if (code != 0) ocCompact = false
+                if (code != 0 && limited) accBump(true)
+                if (code != 0 && ocAutoSwitch && limited && (freeLimit || ocRetries >= 4)) {
+                    refreshOcAccounts()
+                    val list = ocAccounts
+                    if (list.size > 1 && ocSwitchTries < list.size - 1) {
+                        val cur = list.indexOf(ocActiveAccount)
+                        val next = list[(cur + 1).mod(list.size)]
+                        ocSwitchTries++
+                        doAccountSwitch(next)
+                        retryScheduled = true
+                        ocRetryDelay = 3_000L
+                        items += UiItem.Notice("Лимит на предыдущем аккаунте. Переключился на «$next» и повторяю запрос.")
+                    }
+                }
+                if (retryScheduled) {
+                } else if (code != 0 && (netErr.containsMatchIn(text) || rate) && ocRetries < 4) {
                     ocRetries++
                     retryScheduled = true
-                    items += UiItem.Notice("Сеть недоступна (${netErr.find(text)?.value}). Повтор через 15 с, попытка $ocRetries из 4.")
+                    ocRetryDelay = if (rate) 45_000L else 15_000L
+                    items += UiItem.Notice((if (rate) "Сервер просит подождать (429, слишком частые запросы)." else "Сеть недоступна (${netErr.find(text)?.value}).") + " Повтор через ${ocRetryDelay / 1000} с, попытка $ocRetries из 4.")
                 } else if (code != 0) {
                     lastRunFailed = true
-                    if (text.contains("Free usage limit", ignoreCase = true)) { ocAddLong("ocHits", System.currentTimeMillis(), 50); ocStatsVersion++ }
+                    if (freeLimit) { ocAddLong("ocHits", System.currentTimeMillis(), 50); ocStatsVersion++ }
                     items += UiItem.Error(
                         "OpenCode завершился с кодом $code." +
                             (if (text.contains("Free usage limit", ignoreCase = true)) "\n\n💡 Это лимит бесплатных моделей на сервере OpenCode, а не ошибка приложения. Размер лимита и время сброса OpenCode не сообщает. Варианты: подождать и попробовать позже, оформить их платный тариф (opencode.ai/go) или переключиться на другого провайдера: Gemini, OpenRouter :free, Groq, NVIDIA (☰ → Настройки → Шаблоны провайдеров), выключив режим OpenCode." else "") +
@@ -2689,7 +2826,7 @@ class ChatController(
                         running = true
                         startService()
                         job = scope.launch {
-                            kotlinx.coroutines.delay(15_000)
+                            kotlinx.coroutines.delay(ocRetryDelay)
                             if (retryId == runId) { running = false; sendViaOpenCode("Продолжай с того места, где остановился.", isRetry = true) }
                         }
                     } else {

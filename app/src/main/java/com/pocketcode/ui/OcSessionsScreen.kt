@@ -37,6 +37,10 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
     var accName by remember { mutableStateOf("") }
     var accMsg by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { vm.refreshOcSessions(); vm.refreshOcAccounts() }
+    var exportFor by remember { mutableStateOf<ChatController.OcSession?>(null) }
+    val mdLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/markdown"),
+    ) { uri -> val s = exportFor; if (uri != null && s != null) vm.exportOcSessionTo(s, uri) }
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("Диалоги OpenCode") },
@@ -52,7 +56,8 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
             )
             if (vm.ocSessionId != null) Text("Сейчас выбрана: ${vm.ocSessionTitle}", style = MaterialTheme.typography.labelLarge)
             OutlinedButton(onClick = { vm.newOcSession(); onOpened() }, modifier = Modifier.fillMaxWidth()) { Text("Начать новую беседу") }
-            OutlinedButton(onClick = { vm.resetSessionAndChat(); onOpened() }, enabled = !vm.running, modifier = Modifier.fillMaxWidth()) { Text("Сбросить id сессии и чат (анонимно)") }
+            OutlinedButton(onClick = { vm.resetSessionAndChat(true); onOpened() }, enabled = !vm.running, modifier = Modifier.fillMaxWidth()) { Text("Сбросить сессию, оставив последнее сообщение") }
+            OutlinedButton(onClick = { vm.resetSessionAndChat(false); onOpened() }, enabled = !vm.running, modifier = Modifier.fillMaxWidth()) { Text("Сбросить сессию и чат полностью (анонимно)") }
             androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Аккаунты OpenCode", style = MaterialTheme.typography.titleSmall)
@@ -60,10 +65,17 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                         "Беседы хранятся отдельно от входа, поэтому при смене или выходе из аккаунта они остаются. Чтобы добавить второй аккаунт: выйди, войди другим (поле ключа ниже или ☰ → Терминал → «Войти»), затем сохрани его здесь под именем.",
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Text("При лимите сам переключиться на другой аккаунт и повторить", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                        androidx.compose.material3.Switch(checked = vm.ocAutoSwitch, onCheckedChange = { vm.setOcAutoSwitchValue(it) })
+                    }
                     Text(if (vm.ocActiveAccount.isNotEmpty()) "Сейчас: ${vm.ocActiveAccount}" else "Сейчас: без сохранённого аккаунта", style = MaterialTheme.typography.labelMedium)
                     vm.ocAccounts.forEach { a ->
                         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            Text((if (a == vm.ocActiveAccount) "● " else "○ ") + a, Modifier.weight(1f))
+                            Column(Modifier.weight(1f)) {
+                                Text((if (a == vm.ocActiveAccount) "● " else "○ ") + a)
+                                Text(vm.accStatsText(a), style = MaterialTheme.typography.labelSmall)
+                            }
                             TextButton(onClick = { accMsg = vm.ocAccountSwitch(a) }, enabled = a != vm.ocActiveAccount) { Text("Выбрать") }
                             TextButton(onClick = { vm.ocAccountDelete(a) }) { Text("✕") }
                         }
@@ -136,6 +148,7 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                                 Button(onClick = { vm.useOcSession(s); onOpened() }, enabled = !vm.running && !vm.ocSessionsBusy) {
                                     Text(if (vm.ocSessionId == s.id) "Выбрана" else "Открыть")
                                 }
+                                TextButton(onClick = { exportFor = s; mdLauncher.launch("opencode-" + s.id.takeLast(8) + ".md") }, enabled = !vm.ocSessionsBusy) { Text("В Markdown") }
                                 TextButton(onClick = { confirmDelete = s }, enabled = !vm.ocSessionsBusy) { Text("Удалить") }
                             }
                         }

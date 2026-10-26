@@ -154,7 +154,9 @@ fun ChatScreen(
                             DropdownMenuItem(text = { Text("Git") }, onClick = { moreMenu = false; onOpenGit() })
                             DropdownMenuItem(text = { Text("Что в контексте") }, onClick = { moreMenu = false; onOpenContext() })
                             DropdownMenuItem(text = { Text("Экспорт чата в Markdown") }, onClick = { moreMenu = false; onExport() })
-                            if (vm.openCodeMode) DropdownMenuItem(text = { Text("Сбросить сессию и чат") }, onClick = { moreMenu = false; vm.resetSessionAndChat() })
+                            if (vm.openCodeMode) DropdownMenuItem(text = { Text("Сбросить сессию (оставить последнее)") }, onClick = { moreMenu = false; vm.resetSessionAndChat(true) })
+                            if (vm.openCodeMode) DropdownMenuItem(text = { Text("Сбросить сессию и чат полностью") }, onClick = { moreMenu = false; vm.resetSessionAndChat(false) })
+                            if (vm.openCodeMode) DropdownMenuItem(text = { Text("Сжать беседу") }, onClick = { moreMenu = false; vm.compactOcSession() })
                             DropdownMenuItem(text = { Text("Поиск по чату") }, onClick = { moreMenu = false; searchQ = ""; dlg = "search" })
                             DropdownMenuItem(text = { Text("Заметки проекта") }, onClick = { moreMenu = false; notesDraft = vm.notesText(); dlg = "notes" })
                             DropdownMenuItem(text = { Text("Мои шаблоны") }, onClick = { moreMenu = false; newTpl = ""; dlg = "tpl" })
@@ -288,11 +290,14 @@ fun ChatScreen(
                         Text(vm.ocModel.ifBlank { "по умолчанию" }.take(26), style = MaterialTheme.typography.labelSmall, maxLines = 1)
                     }
                 }
-                if (ocOpen) Text(
-                    (if (vm.ocSessionId != null) vm.ocSessionTitle.take(40) else "новая беседа") + (if (vm.ocActiveAccount.isNotEmpty()) " · " + vm.ocActiveAccount else ""),
-                    style = MaterialTheme.typography.labelSmall, maxLines = 1,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
+                if (ocOpen) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        (if (vm.ocSessionId != null) vm.ocSessionTitle.take(30) else "новая беседа") + (if (vm.ocActiveAccount.isNotEmpty()) " · " + vm.ocActiveAccount else "") +
+                            (if (vm.ocCtxTokens > 20_000) " · контекст ≈ ${vm.ocCtxTokens / 1000}к" else ""),
+                        style = MaterialTheme.typography.labelSmall, maxLines = 1, modifier = Modifier.weight(1f),
+                    )
+                    if (vm.ocCtxTokens > 60_000 && !vm.running) TextButton(onClick = { vm.compactOcSession() }) { Text("Сжать") }
+                }
             }
             if (showTodos && vm.todos.isNotEmpty()) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -326,6 +331,9 @@ fun ChatScreen(
                     },
                     confirmButton = { TextButton(onClick = { showChanges = false }) { Text("Закрыть") } },
                 )
+            }
+            if (!vm.running && vm.lastRunFailed && vm.items.any { it is UiItem.User }) {
+                TextButton(onClick = { vm.retryLast() }, modifier = Modifier.padding(horizontal = 4.dp)) { Text("↻ Повторить последнее сообщение") }
             }
             if (vm.running) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
