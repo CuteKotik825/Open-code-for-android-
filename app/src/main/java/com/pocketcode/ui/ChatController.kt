@@ -1975,7 +1975,7 @@ class ChatController(
         val list = ocSessions.take(20).filter { it.id !in ocPreviews }
         ocPreviewJob = scope.launch {
             for (s in list) {
-                val raw = try { runFull("opencode export '${s.id.replace("'", "")}'", 60) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Throwable) { continue }
+                val raw = try { ocExport(s.id, 60) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Throwable) { continue }
                 val texts = mutableListOf<Pair<String?, String>>()
                 try { collectTexts(kotlinx.serialization.json.Json.parseToJsonElement(jsonStart(raw)), null, texts) } catch (e: Throwable) { texts += scanTexts(raw) }
                 val last = texts.lastOrNull { it.first != "user" } ?: texts.lastOrNull()
@@ -2023,6 +2023,19 @@ class ChatController(
         } finally {
             p.destroyForcibly()
             errDrain.interrupt()
+        }
+    }
+
+    /** Экспорт беседы через файл: при выводе в pipe opencode (Bun) обрывает длинный JSON на ~64 КБ, файл пишется целиком. */
+    private suspend fun ocExport(id: String, timeoutSec: Long): String {
+        val safe = id.replace("'", "").replace(Regex("[^A-Za-z0-9_-]"), "")
+        val rel = "tmp/pc_export_$safe.json"
+        val f = File(linuxEnv.rootfs, rel)
+        return try {
+            runFull("opencode export '$safe' > /$rel 2>/dev/null", timeoutSec)
+            if (f.exists() && f.length() > 0) withContext(Dispatchers.IO) { f.readText() } else runFull("opencode export '$safe'", timeoutSec)
+        } finally {
+            runCatching { f.delete() }
         }
     }
 
@@ -2133,7 +2146,7 @@ class ChatController(
         ocSessionsMsg = "Открываю беседу…"
         scope.launch {
             val raw = try {
-                runFull("opencode export '${s.id.replace("'", "")}'", 180)
+                ocExport(s.id, 180)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
