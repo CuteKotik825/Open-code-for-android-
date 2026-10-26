@@ -44,7 +44,8 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
             actions = { TextButton(onClick = { vm.refreshOcSessions() }, enabled = !vm.ocSessionsBusy) { Text("Обновить") } },
         )
     }) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(Modifier.padding(pad).fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          item { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 "Это беседы самого OpenCode (хранятся внутри Linux). Выбери беседу, и новые сообщения в режиме OpenCode продолжат её, а переписка покажется в чате.",
                 style = MaterialTheme.typography.bodySmall,
@@ -119,7 +120,8 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                 }
             }
             vm.ocSessionsMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+          } }
+          run {
                 items(vm.ocSessions) { s ->
                     OutlinedCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(10.dp)) {
