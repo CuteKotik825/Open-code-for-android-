@@ -445,6 +445,7 @@ class ChatController(
         agent = null
         currentId = null
         streamingIndex = null
+        loadOcProject()
         refreshProjects()
     }
 
@@ -1168,6 +1169,7 @@ class ChatController(
     }
 
     private fun persist() {
+        if (!isTab) settingsStore.rawPut("ocSess|" + currentProject, ocSessionId.orEmpty() + "\u001f" + ocSessionTitle)
         updateContextUsage()
         val id = currentId ?: return
         val title = (items.firstOrNull { it is UiItem.User } as? UiItem.User)?.text
@@ -2386,9 +2388,98 @@ class ChatController(
         if (!isTab) settingsStore.rawPut("ocContinue", if (v) "1" else "0")
     }
 
-    fun setOcModelValue(v: String) { ocModel = v; settingsStore.rawPut("ocModel", v) }
+    fun setOcModelValue(v: String) { ocModel = v; settingsStore.rawPut("ocModel", v); if (!isTab) settingsStore.rawPut("ocModel|" + currentProject, v) }
+
+    /** Модель и беседа OpenCode помнятся отдельно для каждого проекта. */
+    private fun loadOcProject() {
+        if (isTab) return
+        settingsStore.rawGet("ocModel|" + currentProject)?.let { ocModel = it }
+        val s = settingsStore.rawGet("ocSess|" + currentProject).orEmpty().split('\u001f')
+        ocSessionId = s.getOrNull(0)?.takeIf { it.isNotBlank() }
+        ocSessionTitle = s.getOrNull(1).orEmpty()
+        setOcContinue(ocSessionId != null)
+    }
 
     private val ansi = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]")
+
+    // --- тема, журнал запросов, закрепления, запасная модель, автосжатие ---
+    var themeMode by mutableStateOf(settingsStore.rawGet("themeMode") ?: "system")
+        private set
+    fun setThemeModeValue(v: String) { themeMode = v; settingsStore.rawPut("themeMode", v) }
+
+    var ocFallbackModel by mutableStateOf(settingsStore.rawGet("ocFallback").orEmpty())
+        private set
+    fun setOcFallbackValue(v: String) { ocFallbackModel = v.trim(); settingsStore.rawPut("ocFallback", v.trim()) }
+    private var ocFbUsed = false
+
+    var ocAutoCompact by mutableIntStateOf(settingsStore.rawGet("ocAutoCompact")?.toIntOrNull() ?: 0)
+        private set
+    fun setOcAutoCompactValue(v: Int) { ocAutoCompact = v; settingsStore.rawPut("ocAutoCompact", v.toString()) }
+    private var ocCompactSoon = false
+
+    var ocPins by mutableStateOf(settingsStore.rawGet("ocPins")?.split(',')?.filter { it.isNotBlank() }?.toSet() ?: emptySet<String>())
+        private set
+    fun toggleOcPin(id: String) {
+        ocPins = if (id in ocPins) ocPins - id else ocPins + id
+        settingsStore.rawPut("ocPins", ocPins.joinToString(","))
+    }
+    var ocTitles by mutableStateOf<Map<String, String>>(
+        runCatching { kotlinx.serialization.json.Json.decodeFromString<Map<String, String>>(settingsStore.rawGet("ocTitles") ?: "{}") }.getOrDefault(emptyMap()),
+    )
+        private set
+    fun renameOc(id: String, title: String) {
+        val m = ocTitles.toMutableMap()
+        if (title.isBlank()) m.remove(id) else m[id] = title.trim().take(80)
+        ocTitles = m
+        settingsStore.rawPut("ocTitles", kotlinx.serialization.json.Json.encodeToString<Map<String, String>>(m))
+    }
+    fun ocTitleOf(s: OcSession) = ocTitles[s.id] ?: s.title
+
+    /** Журнал запросов к OpenCode: время, аккаунт, модель, исход, размер контекста, длительность. */
+    private fun ocLogAdd(outcome: String, code: Int, startMs: Long) {
+        val fmt = java.text.SimpleDateFormat("dd.MM HH:mm:ss", java.util.Locale.getDefault())
+        val line = listOf(
+            fmt.format(java.util.Date()), ocActiveAccount.ifBlank { "—" }, ocModel.ifBlank { "по умолчанию" },
+            outcome + (if (code != 0) " (код $code)" else ""), if (ocCtxTokens > 0) "ctx ≈ ${ocCtxTokens / 1000}к" else "ctx ?", "${(System.currentTimeMillis() - startMs) / 1000} с",
+        ).joinToString(" | ")
+        val old = (settingsStore.rawGet("ocLog") ?: "").split('¦').filter { it.isNotBlank() }
+        settingsStore.rawPut("ocLog", (old + line).takeLast(120).joinToString("¦"))
+        ocStatsVersion++
+    }
+    fun ocLogLines(): List<String> { ocStatsVersion; return (settingsStore.rawGet("ocLog") ?: "").split('¦').filter { it.isNotBlank() }.reversed() }
+    fun ocLogClear() { settingsStore.rawPut("ocLog", ""); ocStatsVersion++ }
+
+    /** Проверка своего провайдера прямым запросом (без OpenCode): показывает код ответа и текст. */
+    suspend fun ocCustomTest(id: String): String = withContext(Dispatchers.IO) {
+        try {
+            val prov = (ocConfigRead()["provider"] as? kotlinx.serialization.json.JsonObject)?.get(id) as? kotlinx.serialization.json.JsonObject ?: return@withContext "Провайдер не найден."
+            val opts = prov["options"] as? kotlinx.serialization.json.JsonObject
+            val url = (opts?.get("baseURL") as? kotlinx.serialization.json.JsonPrimitive)?.content ?: return@withContext "Нет адреса."
+            val key = (opts["apiKey"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+            val model = (prov["models"] as? kotlinx.serialization.json.JsonObject)?.keys?.firstOrNull() ?: return@withContext "Нет модели."
+            val conn = java.net.URL(url.trimEnd('/') + "/chat/completions").openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 20_000; conn.readTimeout = 40_000
+            conn.setRequestProperty("Content-Type", "application/json")
+            if (key.isNotEmpty()) conn.setRequestProperty("Authorization", "Bearer $key")
+            conn.doOutput = true
+            val body = kotlinx.serialization.json.buildJsonObject {
+                put("model", kotlinx.serialization.json.JsonPrimitive(model))
+                put("max_tokens", kotlinx.serialization.json.JsonPrimitive(8))
+                put("messages", kotlinx.serialization.json.buildJsonArray {
+                    add(kotlinx.serialization.json.buildJsonObject {
+                        put("role", kotlinx.serialization.json.JsonPrimitive("user")); put("content", kotlinx.serialization.json.JsonPrimitive("Ответь одним словом: ок"))
+                    })
+                })
+            }.toString()
+            conn.outputStream.use { it.write(body.toByteArray()) }
+            val code = conn.responseCode
+            val text = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
+            Secrets.mask("HTTP $code" + (if (code in 200..299) ": работает.\n" else ": не работает.\n") + text.take(300))
+        } catch (e: Throwable) {
+            "Ошибка соединения: ${e.message}"
+        }
+    }
 
     // --- размер контекста, сжатие, автопереключение аккаунтов ---
     /** Примерный размер контекста беседы OpenCode в токенах (точный из событий или оценка по экспорту). */
@@ -2753,7 +2844,7 @@ class ChatController(
             return
         }
         if (currentId == null) currentId = UUID.randomUUID().toString()
-        if (!isRetry) { items += UiItem.User(prompt, 0); ocRetries = 0; ocSwitchTries = 0; ocAddLong("ocRuns", System.currentTimeMillis(), 300); accBump(false) }
+        if (!isRetry) { items += UiItem.User(prompt, 0); ocRetries = 0; ocSwitchTries = 0; ocFbUsed = false; ocAddLong("ocRuns", System.currentTimeMillis(), 300); accBump(false) }
         val reply = UiItem.Assistant("⏳ OpenCode запускается и думает… (в Linux на телефоне первый ответ может идти минуту)")
         items += reply
         val idx = items.lastIndex
@@ -2777,6 +2868,7 @@ class ChatController(
         val cards = ocCards
         val cmd = perm + "opencode run" + (if (cards) " --format json" else "") + resume + model + " " + q
         val myRun = ++runId
+        val runStart = System.currentTimeMillis()
         var retryScheduled = false
         ocTokIn = 0; ocTokOut = 0; ocTokCache = 0; ocTokSeen = false; ocStepCtx = 0; ocLastReasoning = ""
         job = scope.launch {
@@ -2866,6 +2958,8 @@ class ChatController(
                     items += UiItem.Notice("Контекст беседы уже ≈ ${ocCtxTokens / 1000} тыс. токенов: запросы тяжёлые и быстрее упираются в лимиты. Можно «Сжать» беседу или сбросить сессию.")
                 }
                 if (code != 0) ocCompact = false
+                if (code == 0 && ocAutoCompact > 0 && ocCtxTokens > ocAutoCompact && !ocCompact) ocCompactSoon = true
+                ocLogAdd(when { code == 0 -> "ок"; freeLimit -> "лимит"; rate -> "429"; netErr.containsMatchIn(text) -> "сеть"; else -> "ошибка" }, code, runStart)
                 if (code != 0 && limited) accBump(true)
                 if (code != 0 && ocAutoSwitch && limited && (freeLimit || ocRetries >= 4)) {
                     refreshOcAccounts()
@@ -2879,6 +2973,13 @@ class ChatController(
                         ocRetryDelay = 3_000L
                         items += UiItem.Notice("Лимит на предыдущем аккаунте. Переключился на «$next» и повторяю запрос.")
                     }
+                }
+                if (!retryScheduled && code != 0 && limited && (freeLimit || ocRetries >= 4) && ocFallbackModel.isNotBlank() && ocModel != ocFallbackModel && !ocFbUsed) {
+                    ocFbUsed = true
+                    setOcModelValue(ocFallbackModel)
+                    retryScheduled = true
+                    ocRetryDelay = 3_000L
+                    items += UiItem.Notice("Лимит на выбранной модели. Переключился на запасную «$ocFallbackModel» и повторяю запрос.")
                 }
                 if (retryScheduled) {
                 } else if (code != 0 && (netErr.containsMatchIn(text) || rate) && ocRetries < 4) {
@@ -2914,7 +3015,8 @@ class ChatController(
                         }
                     } else {
                         val next = if (!lastRunFailed && queue.isNotEmpty()) queue.removeAt(0).also { saveQueue() } else null
-                        if (next != null) send(next)
+                        if (ocCompactSoon && next == null) { ocCompactSoon = false; compactOcSession() }
+                        else if (next != null) send(next)
                         else if (!appVisible) Notifier.alert(app, "OpenCode закончил", (items.lastOrNull { it is UiItem.Assistant } as? UiItem.Assistant)?.text?.takeLast(200) ?: "Готово")
                     }
                 }

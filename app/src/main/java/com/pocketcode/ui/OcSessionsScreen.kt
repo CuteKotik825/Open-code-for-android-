@@ -1,6 +1,8 @@
 package com.pocketcode.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,6 +42,13 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
     var cModel by remember { mutableStateOf("") }
     var cKey by remember { mutableStateOf("") }
     var cMsg by remember { mutableStateOf<String?>(null) }
+    var cBusy by remember { mutableStateOf(false) }
+    var fb by remember { mutableStateOf(vm.ocFallbackModel) }
+    var query by remember { mutableStateOf("") }
+    var renameFor by remember { mutableStateOf<ChatController.OcSession?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var showLog by remember { mutableStateOf(false) }
+    val uiScope = androidx.compose.runtime.rememberCoroutineScope()
     var accMsg by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { vm.refreshOcSessions(); vm.refreshOcAccounts(); vm.refreshOcCustom() }
     var exportFor by remember { mutableStateOf<ChatController.OcSession?>(null) }
@@ -109,6 +118,14 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                             TextButton(onClick = { vm.ocCustomRemove(p) }) { Text("Убрать") }
                         }
                     }
+                    Text("Быстро заполнить:", style = MaterialTheme.typography.labelSmall)
+                    Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        com.pocketcode.PROVIDER_TEMPLATES.filter { it.provider == com.pocketcode.Provider.OPENAI }.forEach { t ->
+                            androidx.compose.material3.AssistChip(onClick = {
+                                cId = t.name.lowercase().replace(Regex("[^a-z0-9]+"), "").ifEmpty { "custom" }; cUrl = t.baseUrl; cModel = t.model
+                            }, label = { Text(t.name) })
+                        }
+                    }
                     androidx.compose.material3.OutlinedTextField(value = cId, onValueChange = { cId = it }, singleLine = true, label = { Text("Название (латиницей)") }, modifier = Modifier.fillMaxWidth())
                     androidx.compose.material3.OutlinedTextField(value = cUrl, onValueChange = { cUrl = it }, singleLine = true, label = { Text("Адрес API (Base URL)") }, modifier = Modifier.fillMaxWidth())
                     androidx.compose.material3.OutlinedTextField(value = cModel, onValueChange = { cModel = it }, singleLine = true, label = { Text("Модель (как в кабинете сервиса)") }, modifier = Modifier.fillMaxWidth())
@@ -117,7 +134,21 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                         visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                     )
                     Button(onClick = { cMsg = vm.ocCustomSet(cId, cUrl, cModel, cKey); cKey = "" }, enabled = cUrl.isNotBlank() && cModel.isNotBlank()) { Text("Сохранить провайдер") }
+                    if (vm.ocCustomProviders.isNotEmpty()) OutlinedButton(
+                        onClick = { cBusy = true; cMsg = "Проверяю…"; uiScope.launch { cMsg = vm.ocCustomTest(vm.ocCustomProviders.first()); cBusy = false } },
+                        enabled = !cBusy,
+                    ) { Text("Проверить провайдера «${vm.ocCustomProviders.first()}»") }
                     cMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    androidx.compose.material3.OutlinedTextField(
+                        value = fb, onValueChange = { fb = it; vm.setOcFallbackValue(it) }, singleLine = true,
+                        label = { Text("Запасная модель при лимите (провайдер/модель)") }, modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text("Автосжатие беседы при контексте больше:", style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(0 to "выкл", 80_000 to "80к", 120_000 to "120к", 200_000 to "200к").forEach { (v, l) ->
+                            androidx.compose.material3.FilterChip(selected = vm.ocAutoCompact == v, onClick = { vm.setOcAutoCompactValue(v) }, label = { Text(l) })
+                        }
+                    }
                 }
             }
             androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
@@ -161,13 +192,35 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                     Text(vm.ocStatsText(), style = MaterialTheme.typography.bodySmall)
                 }
             }
+            androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Text("Журнал запросов", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                        TextButton(onClick = { showLog = !showLog }) { Text(if (showLog) "Скрыть" else "Показать") }
+                        if (showLog) TextButton(onClick = { vm.ocLogClear() }) { Text("Очистить") }
+                    }
+                    if (showLog) {
+                        val lines = vm.ocLogLines().take(40)
+                        if (lines.isEmpty()) Text("Пока пусто.", style = MaterialTheme.typography.bodySmall)
+                        lines.forEach { Text(it, style = MaterialTheme.typography.labelSmall) }
+                    }
+                }
+            }
+            androidx.compose.material3.OutlinedTextField(
+                value = query, onValueChange = { query = it }, singleLine = true,
+                label = { Text("Поиск по беседам (название и последнее сообщение)") }, modifier = Modifier.fillMaxWidth(),
+            )
             vm.ocSessionsMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
           } }
           run {
-                items(vm.ocSessions) { s ->
+                val q = query.trim()
+                val shown = vm.ocSessions
+                    .filter { q.isEmpty() || vm.ocTitleOf(it).contains(q, true) || (vm.ocPreviews[it.id] ?: "").contains(q, true) }
+                    .sortedByDescending { it.id in vm.ocPins }
+                items(shown) { s ->
                     OutlinedCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(10.dp)) {
-                            Text(s.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
+                            Text((if (s.id in vm.ocPins) "📌 " else "") + vm.ocTitleOf(s), style = MaterialTheme.typography.titleSmall, maxLines = 2)
                             Text(s.updated.ifEmpty { s.id }, style = MaterialTheme.typography.labelSmall)
                             Text(
                                 vm.ocPreviews[s.id]?.let { "…$it" } ?: "загружаю последнее сообщение…",
@@ -177,6 +230,8 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                                 Button(onClick = { vm.useOcSession(s); onOpened() }, enabled = !vm.running && !vm.ocSessionsBusy) {
                                     Text(if (vm.ocSessionId == s.id) "Выбрана" else "Открыть")
                                 }
+                                TextButton(onClick = { vm.toggleOcPin(s.id) }) { Text(if (s.id in vm.ocPins) "Открепить" else "📌") }
+                                TextButton(onClick = { renameFor = s; renameText = vm.ocTitleOf(s) }) { Text("✎") }
                                 TextButton(onClick = { exportFor = s; mdLauncher.launch("opencode-" + s.id.takeLast(8) + ".md") }, enabled = !vm.ocSessionsBusy) { Text("В Markdown") }
                                 TextButton(onClick = { confirmDelete = s }, enabled = !vm.ocSessionsBusy) { Text("Удалить") }
                             }
@@ -185,6 +240,15 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                 }
             }
         }
+    }
+    renameFor?.let { s ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { renameFor = null },
+            title = { Text("Название беседы") },
+            text = { androidx.compose.material3.OutlinedTextField(value = renameText, onValueChange = { renameText = it }, singleLine = true, label = { Text("Пусто — вернуть исходное") }) },
+            confirmButton = { TextButton(onClick = { vm.renameOc(s.id, renameText); renameFor = null }) { Text("Сохранить") } },
+            dismissButton = { TextButton(onClick = { renameFor = null }) { Text("Отмена") } },
+        )
     }
     confirmDelete?.let { s ->
         androidx.compose.material3.AlertDialog(

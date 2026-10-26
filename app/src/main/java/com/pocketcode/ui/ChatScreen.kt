@@ -334,6 +334,14 @@ fun ChatScreen(
                     confirmButton = { TextButton(onClick = { showChanges = false }) { Text("Закрыть") } },
                 )
             }
+            val lastIt = vm.items.lastOrNull()
+            if (!vm.running && lastIt is UiItem.Assistant && !imeOpen && lastIt.text.trimEnd().endsWith("?") && !lastIt.text.startsWith("⏳")) {
+                Row(Modifier.padding(horizontal = 8.dp)) {
+                    listOf("Да", "Нет", "Продолжай").forEach { a ->
+                        androidx.compose.material3.AssistChip(onClick = { vm.send(a) }, label = { Text(a) }, modifier = Modifier.padding(end = 6.dp))
+                    }
+                }
+            }
             if (!vm.running && vm.lastRunFailed && vm.items.any { it is UiItem.User }) {
                 TextButton(onClick = { vm.retryLast() }, modifier = Modifier.padding(horizontal = 4.dp)) { Text("↻ Повторить последнее сообщение") }
             }
