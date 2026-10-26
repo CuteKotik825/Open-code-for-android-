@@ -34,7 +34,9 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
     var provider by remember { mutableStateOf("opencode") }
     var key by remember { mutableStateOf("") }
     var keyMsg by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { vm.refreshOcSessions(); vm.refreshOcProviders() }
+    var accName by remember { mutableStateOf("") }
+    var accMsg by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { vm.refreshOcSessions(); vm.refreshOcAccounts() }
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("Диалоги OpenCode") },
@@ -49,6 +51,32 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
             )
             if (vm.ocSessionId != null) Text("Сейчас выбрана: ${vm.ocSessionTitle}", style = MaterialTheme.typography.labelLarge)
             OutlinedButton(onClick = { vm.newOcSession(); onOpened() }, modifier = Modifier.fillMaxWidth()) { Text("Начать новую беседу") }
+            androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Аккаунты OpenCode", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Беседы хранятся отдельно от входа, поэтому при смене или выходе из аккаунта они остаются. Чтобы добавить второй аккаунт: выйди, войди другим (поле ключа ниже или ☰ → Терминал → «Войти»), затем сохрани его здесь под именем.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(if (vm.ocActiveAccount.isNotEmpty()) "Сейчас: ${vm.ocActiveAccount}" else "Сейчас: без сохранённого аккаунта", style = MaterialTheme.typography.labelMedium)
+                    vm.ocAccounts.forEach { a ->
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            Text((if (a == vm.ocActiveAccount) "● " else "○ ") + a, Modifier.weight(1f))
+                            TextButton(onClick = { accMsg = vm.ocAccountSwitch(a) }, enabled = a != vm.ocActiveAccount) { Text("Выбрать") }
+                            TextButton(onClick = { vm.ocAccountDelete(a) }) { Text("✕") }
+                        }
+                    }
+                    androidx.compose.material3.OutlinedTextField(
+                        value = accName, onValueChange = { accName = it }, singleLine = true,
+                        label = { Text("Название (например, «Основной»)") }, modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { accMsg = vm.ocAccountSave(accName); accName = "" }, enabled = accName.isNotBlank()) { Text("Сохранить текущий вход") }
+                        OutlinedButton(onClick = { accMsg = vm.ocLogout() }) { Text("Выйти") }
+                    }
+                    accMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
             androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Ключ OpenCode", style = MaterialTheme.typography.titleSmall)

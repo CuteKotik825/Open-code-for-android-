@@ -274,22 +274,24 @@ fun ChatScreen(
                     TextButton(onClick = { showChanges = true }) { Text("Правки (${vm.changes.size})") }
                 }
             }
-            if (vm.openCodeMode && !imeOpen) {
-                OutlinedTextField(
-                    value = vm.ocModel,
-                    onValueChange = { vm.setOcModelValue(it) },
-                    label = { Text("Модель OpenCode (пусто — по умолчанию)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                )
+            if (vm.openCodeMode) {
+                var ocOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onOpenOcSessions) { Text("📂 Диалоги OpenCode") }
-                    Text(
-                        if (vm.ocSessionId != null) vm.ocSessionTitle.take(30) else "новая беседа",
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                    )
+                    TextButton(onClick = { ocOpen = !ocOpen }) { Text(if (ocOpen) "OpenCode ▾" else "OpenCode ▸") }
+                    if (ocOpen) {
+                        TextButton(onClick = { modelDraft = vm.ocModel; vm.loadOcModels(); dlg = "ocmodel" }) {
+                            Text("🧠 " + vm.ocModel.ifBlank { "по умолчанию" }.take(22), maxLines = 1)
+                        }
+                        TextButton(onClick = onOpenOcSessions) { Text("📂 Диалоги", maxLines = 1) }
+                    } else {
+                        Text(vm.ocModel.ifBlank { "по умолчанию" }.take(26), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    }
                 }
+                if (ocOpen) Text(
+                    (if (vm.ocSessionId != null) vm.ocSessionTitle.take(40) else "новая беседа") + (if (vm.ocActiveAccount.isNotEmpty()) " · " + vm.ocActiveAccount else ""),
+                    style = MaterialTheme.typography.labelSmall, maxLines = 1,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
             }
             if (showTodos && vm.todos.isNotEmpty()) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -560,6 +562,23 @@ fun ChatScreen(
                 }
             },
             confirmButton = { TextButton(onClick = { dlg = "" }) { Text("Закрыть") } },
+        )
+    }
+    if (dlg == "ocmodel") {
+        AlertDialog(
+            onDismissRequest = { dlg = "" },
+            title = { Text("Модель OpenCode") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    OutlinedTextField(value = modelDraft, onValueChange = { modelDraft = it }, singleLine = true, label = { Text("провайдер/модель, пусто — по умолчанию") }, modifier = Modifier.fillMaxWidth())
+                    if (vm.ocModelsBusy) Text("Загружаю список…", style = MaterialTheme.typography.labelSmall)
+                    vm.ocModelList.take(80).forEach { m ->
+                        TextButton(onClick = { vm.setOcModelValue(m); dlg = "" }, modifier = Modifier.fillMaxWidth()) { Text(m, modifier = Modifier.fillMaxWidth()) }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.setOcModelValue(modelDraft.trim()); dlg = "" }) { Text("Применить") } },
+            dismissButton = { TextButton(onClick = { dlg = "" }) { Text("Отмена") } },
         )
     }
     if (dlg == "model") {

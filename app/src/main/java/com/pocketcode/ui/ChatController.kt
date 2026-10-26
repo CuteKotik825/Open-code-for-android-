@@ -2369,6 +2369,73 @@ class ChatController(
         refreshOcProviders()
     }
 
+    // --- аккаунты OpenCode: копии auth.json. Беседы лежат отдельно (хранилище OpenCode), смена аккаунта их не трогает ---
+    private val ocAccDir: File get() = File(app.filesDir, "ocAccounts")
+    var ocAccounts by mutableStateOf<List<String>>(emptyList())
+        private set
+    var ocActiveAccount by mutableStateOf(settingsStore.rawGet("ocAccount").orEmpty())
+        private set
+
+    private fun accName(n: String) = n.trim().replace(Regex("[^\\p{L}\\p{N}._ -]"), "").take(40)
+
+    fun refreshOcAccounts() {
+        ocAccounts = ocAccDir.listFiles { f -> f.extension == "json" }?.map { it.nameWithoutExtension }?.sorted().orEmpty()
+        refreshOcProviders()
+    }
+
+    private fun setActiveAcc(n: String) { ocActiveAccount = n; settingsStore.rawPut("ocAccount", n) }
+
+    /** Сохраняет текущий вход (auth.json) под именем. */
+    fun ocAccountSave(name: String): String {
+        val n = accName(name)
+        if (n.isEmpty()) return "Введи название аккаунта."
+        if (!ocAuthFile.exists()) return "Сейчас в OpenCode нет входа: добавь ключ или войди (☰ → Терминал → «Войти»)."
+        return try {
+            ocAccDir.mkdirs()
+            ocAuthFile.copyTo(File(ocAccDir, "$n.json"), overwrite = true)
+            setActiveAcc(n)
+            refreshOcAccounts()
+            "Аккаунт «$n» сохранён."
+        } catch (e: Throwable) { "Не удалось сохранить: ${e.message}" }
+    }
+
+    private fun syncActiveAcc() {
+        // Текущий вход мог обновиться (токены): сохраняем его обратно в активный аккаунт
+        if (ocActiveAccount.isNotEmpty() && ocAuthFile.exists() && File(ocAccDir, "$ocActiveAccount.json").exists())
+            runCatching { ocAuthFile.copyTo(File(ocAccDir, "$ocActiveAccount.json"), overwrite = true) }
+    }
+
+    fun ocAccountSwitch(name: String): String {
+        if (running) return "Дождись конца задачи."
+        val src = File(ocAccDir, "$name.json")
+        if (!src.exists()) return "Аккаунт не найден."
+        return try {
+            syncActiveAcc()
+            ocAuthFile.parentFile?.mkdirs()
+            src.copyTo(ocAuthFile, overwrite = true)
+            runCatching { ocAuthFile.setReadable(false, false); ocAuthFile.setReadable(true, true); ocAuthFile.setWritable(true, true) }
+            setActiveAcc(name)
+            refreshOcAccounts()
+            "Выбран аккаунт «$name». Беседы OpenCode остались на месте."
+        } catch (e: Throwable) { "Не удалось переключить: ${e.message}" }
+    }
+
+    /** Выход: вход убирается из OpenCode, но сохранённый аккаунт остаётся в списке. */
+    fun ocLogout(): String {
+        if (running) return "Дождись конца задачи."
+        syncActiveAcc()
+        runCatching { ocAuthFile.delete() }
+        setActiveAcc("")
+        refreshOcAccounts()
+        return "Вышел из OpenCode. Беседы сохранены; можно выбрать другой аккаунт или работать без входа."
+    }
+
+    fun ocAccountDelete(name: String) {
+        runCatching { File(ocAccDir, "$name.json").delete() }
+        if (ocActiveAccount == name) setActiveAcc("")
+        refreshOcAccounts()
+    }
+
     // --- список моделей OpenCode ---
     var ocModelList by mutableStateOf<List<String>>(emptyList())
         private set
