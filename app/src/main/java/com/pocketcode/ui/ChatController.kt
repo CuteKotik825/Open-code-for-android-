@@ -10,6 +10,7 @@ import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
@@ -1965,6 +1966,24 @@ class ChatController(
 
     var ocSessions by mutableStateOf<List<OcSession>>(emptyList())
         private set
+    /** Последняя реплика беседы: id → текст (подгружается по очереди). */
+    val ocPreviews = mutableStateMapOf<String, String>()
+    private var ocPreviewJob: kotlinx.coroutines.Job? = null
+
+    private fun loadOcPreviews() {
+        ocPreviewJob?.cancel()
+        val list = ocSessions.take(20).filter { it.id !in ocPreviews }
+        ocPreviewJob = scope.launch {
+            for (s in list) {
+                val raw = try { runFull("opencode export '${s.id.replace("'", "")}'", 60) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Throwable) { continue }
+                val texts = mutableListOf<Pair<String?, String>>()
+                try { collectTexts(kotlinx.serialization.json.Json.parseToJsonElement(jsonStart(raw)), null, texts) } catch (e: Throwable) { texts += scanTexts(raw) }
+                val last = texts.lastOrNull { it.first != "user" } ?: texts.lastOrNull()
+                ocPreviews[s.id] = Secrets.mask(last?.second.orEmpty()).replace(Regex("\\s+"), " ").trim().takeLast(160).ifEmpty { "(пусто)" }
+            }
+        }
+    }
+
     var ocSessionsMsg by mutableStateOf<String?>(null)
         private set
     var ocSessionsBusy by mutableStateOf(false)
@@ -2078,6 +2097,7 @@ class ChatController(
                     OcSession(id, title, fmtTime(t))
                 }
                 ocSessionsMsg = if (ocSessions.isEmpty()) "Бесед пока нет." else null
+                loadOcPreviews()
             } catch (e: Throwable) {
                 ocSessions = emptyList()
                 ocSessionsMsg = "Не удалось разобрать ответ OpenCode:\n" + Secrets.mask(raw.take(600))

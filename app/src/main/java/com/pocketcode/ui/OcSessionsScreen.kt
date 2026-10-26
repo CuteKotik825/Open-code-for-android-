@@ -97,6 +97,10 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                         Column(Modifier.padding(10.dp)) {
                             Text(s.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
                             Text(s.updated.ifEmpty { s.id }, style = MaterialTheme.typography.labelSmall)
+                            Text(
+                                vm.ocPreviews[s.id]?.let { "…$it" } ?: "загружаю последнее сообщение…",
+                                style = MaterialTheme.typography.bodySmall, maxLines = 3,
+                            )
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(onClick = { vm.useOcSession(s); onOpened() }, enabled = !vm.running && !vm.ocSessionsBusy) {
                                     Text(if (vm.ocSessionId == s.id) "Выбрана" else "Открыть")

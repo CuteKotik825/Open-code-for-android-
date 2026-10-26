@@ -59,7 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pocketcode.session.UiItem
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ChatScreen(
     vm: ChatController,
@@ -223,7 +223,7 @@ fun ChatScreen(
                     }
                 }
             }
-            if (vm.queue.isNotEmpty() || (vm.running && input.isNotBlank())) {
+            if (vm.queue.isNotEmpty() || (vm.running && input.isNotBlank() && !androidx.compose.foundation.layout.WindowInsets.isImeVisible)) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -266,11 +266,12 @@ fun ChatScreen(
                     TextButton(onClick = { showChanges = true }) { Text("Правки (${vm.changes.size})") }
                 }
             }
-            if (vm.openCodeMode) {
+            val imeOpen = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+            if (vm.openCodeMode && !imeOpen) {
                 OutlinedTextField(
                     value = vm.ocModel,
                     onValueChange = { vm.setOcModelValue(it) },
-                    label = { Text("Режим OpenCode: модель (провайдер/модель), пусто — по умолчанию") },
+                    label = { Text("Модель OpenCode (пусто — по умолчанию)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                 )
@@ -282,11 +283,6 @@ fun ChatScreen(
                         maxLines = 1,
                     )
                 }
-                Text(
-                    "Сообщения уходят официальному OpenCode внутри Linux (opencode run). Память чата ведёт он сам, ключи PocketCode не используются.",
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                )
             }
             if (showTodos && vm.todos.isNotEmpty()) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
