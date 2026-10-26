@@ -35,8 +35,13 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
     var key by remember { mutableStateOf("") }
     var keyMsg by remember { mutableStateOf<String?>(null) }
     var accName by remember { mutableStateOf("") }
+    var cId by remember { mutableStateOf("custom") }
+    var cUrl by remember { mutableStateOf("") }
+    var cModel by remember { mutableStateOf("") }
+    var cKey by remember { mutableStateOf("") }
+    var cMsg by remember { mutableStateOf<String?>(null) }
     var accMsg by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { vm.refreshOcSessions(); vm.refreshOcAccounts() }
+    LaunchedEffect(Unit) { vm.refreshOcSessions(); vm.refreshOcAccounts(); vm.refreshOcCustom() }
     var exportFor by remember { mutableStateOf<ChatController.OcSession?>(null) }
     val mdLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/markdown"),
@@ -89,6 +94,30 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                         OutlinedButton(onClick = { accMsg = vm.ocLogout() }) { Text("Выйти") }
                     }
                     accMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+            androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Свой провайдер для OpenCode", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Любой OpenAI-совместимый сервис (адрес вида https://хост/v1). Настройка записывается в конфиг OpenCode, и его можно использовать в режиме OpenCode. Запросы и код идут через этот сервис, подключай только тем, кому доверяешь.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    vm.ocCustomProviders.forEach { p ->
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            Text("✓ $p", Modifier.weight(1f))
+                            TextButton(onClick = { vm.ocCustomRemove(p) }) { Text("Убрать") }
+                        }
+                    }
+                    androidx.compose.material3.OutlinedTextField(value = cId, onValueChange = { cId = it }, singleLine = true, label = { Text("Название (латиницей)") }, modifier = Modifier.fillMaxWidth())
+                    androidx.compose.material3.OutlinedTextField(value = cUrl, onValueChange = { cUrl = it }, singleLine = true, label = { Text("Адрес API (Base URL)") }, modifier = Modifier.fillMaxWidth())
+                    androidx.compose.material3.OutlinedTextField(value = cModel, onValueChange = { cModel = it }, singleLine = true, label = { Text("Модель (как в кабинете сервиса)") }, modifier = Modifier.fillMaxWidth())
+                    androidx.compose.material3.OutlinedTextField(
+                        value = cKey, onValueChange = { cKey = it }, singleLine = true, label = { Text("Ключ") }, modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    )
+                    Button(onClick = { cMsg = vm.ocCustomSet(cId, cUrl, cModel, cKey); cKey = "" }, enabled = cUrl.isNotBlank() && cModel.isNotBlank()) { Text("Сохранить провайдер") }
+                    cMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
             }
             androidx.compose.material3.Card(Modifier.fillMaxWidth()) {

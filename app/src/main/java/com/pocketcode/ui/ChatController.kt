@@ -2529,6 +2529,65 @@ class ChatController(
         refreshOcProviders()
     }
 
+    // --- свой провайдер OpenCode (OpenAI-совместимый адрес): ~/.config/opencode/opencode.json ---
+    private val ocConfigFile: File get() = File(linuxEnv.rootfs, "root/.config/opencode/opencode.json")
+    var ocCustomProviders by mutableStateOf<List<String>>(emptyList())
+        private set
+
+    private fun ocConfigRead(): MutableMap<String, kotlinx.serialization.json.JsonElement> = runCatching {
+        (kotlinx.serialization.json.Json.parseToJsonElement(ocConfigFile.readText()) as kotlinx.serialization.json.JsonObject).toMutableMap()
+    }.getOrDefault(mutableMapOf())
+
+    fun refreshOcCustom() {
+        val prov = ocConfigRead()["provider"] as? kotlinx.serialization.json.JsonObject
+        ocCustomProviders = prov?.entries?.filter { ((it.value as? kotlinx.serialization.json.JsonObject)?.get("options") as? kotlinx.serialization.json.JsonObject)?.get("baseURL") != null }?.map { it.key }.orEmpty()
+    }
+
+    fun ocCustomSet(idIn: String, baseUrl: String, model: String, key: String): String {
+        val id = idIn.trim().lowercase().replace(Regex("[^a-z0-9_-]"), "")
+        val url = baseUrl.trim().trimEnd('/')
+        val m = model.trim()
+        if (id.isEmpty() || !url.startsWith("http") || m.isEmpty()) return "Нужны название (латиницей), адрес https://… и модель."
+        if (!linuxEnv.isInstalled()) return "Сначала установи Linux."
+        return try {
+            val cfg = ocConfigRead()
+            val prov = ((cfg["provider"] as? kotlinx.serialization.json.JsonObject)?.toMutableMap()) ?: mutableMapOf()
+            val old = prov[id] as? kotlinx.serialization.json.JsonObject
+            val oldModels = (old?.get("models") as? kotlinx.serialization.json.JsonObject)?.toMutableMap() ?: mutableMapOf()
+            oldModels[m] = kotlinx.serialization.json.buildJsonObject { put("name", kotlinx.serialization.json.JsonPrimitive(m)) }
+            val oldKey = ((old?.get("options") as? kotlinx.serialization.json.JsonObject)?.get("apiKey") as? kotlinx.serialization.json.JsonPrimitive)?.content
+            val useKey = key.trim().ifEmpty { oldKey.orEmpty() }
+            prov[id] = kotlinx.serialization.json.buildJsonObject {
+                put("npm", kotlinx.serialization.json.JsonPrimitive("@ai-sdk/openai-compatible"))
+                put("name", kotlinx.serialization.json.JsonPrimitive(id))
+                put("options", kotlinx.serialization.json.buildJsonObject {
+                    put("baseURL", kotlinx.serialization.json.JsonPrimitive(url))
+                    if (useKey.isNotEmpty()) put("apiKey", kotlinx.serialization.json.JsonPrimitive(useKey))
+                })
+                put("models", kotlinx.serialization.json.JsonObject(oldModels))
+            }
+            cfg["provider"] = kotlinx.serialization.json.JsonObject(prov)
+            if (!cfg.containsKey("\$schema")) cfg["\$schema"] = kotlinx.serialization.json.JsonPrimitive("https://opencode.ai/config.json")
+            ocConfigFile.parentFile?.mkdirs()
+            ocConfigFile.writeText(kotlinx.serialization.json.JsonObject(cfg).toString())
+            runCatching { ocConfigFile.setReadable(false, false); ocConfigFile.setReadable(true, true); ocConfigFile.setWritable(true, true) }
+            if (useKey.isNotEmpty()) Secrets.known = Secrets.known + useKey
+            setOcModelValue("$id/$m")
+            refreshOcCustom()
+            "Провайдер «$id» сохранён, модель выбрана: $id/$m. Включи режим OpenCode и пиши."
+        } catch (e: Throwable) { "Не удалось записать: ${e.message}" }
+    }
+
+    fun ocCustomRemove(id: String) {
+        val cfg = ocConfigRead()
+        val prov = ((cfg["provider"] as? kotlinx.serialization.json.JsonObject)?.toMutableMap()) ?: return
+        prov.remove(id)
+        cfg["provider"] = kotlinx.serialization.json.JsonObject(prov)
+        runCatching { ocConfigFile.writeText(kotlinx.serialization.json.JsonObject(cfg).toString()) }
+        if (ocModel.startsWith("$id/")) setOcModelValue("")
+        refreshOcCustom()
+    }
+
     // --- аккаунты OpenCode: копии auth.json. Беседы лежат отдельно (хранилище OpenCode), смена аккаунта их не трогает ---
     private val ocAccDir: File get() = File(app.filesDir, "ocAccounts")
     var ocAccounts by mutableStateOf<List<String>>(emptyList())
