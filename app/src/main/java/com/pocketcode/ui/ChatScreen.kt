@@ -118,10 +118,19 @@ fun ChatScreen(
             .collect { (inProgress, canForward) -> if (inProgress || !canForward) stick = !canForward }
     }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // Очень длинный последний элемент выше одного прыжка: докручиваем кусками, пока низ не достигнут
+    suspend fun toBottom() {
+        if (vm.items.isEmpty()) return
+        listState.scrollToItem(vm.items.lastIndex)
+        var n = 0
+        while (listState.canScrollForward && n < 200) {
+            listState.scrollBy(20000f)
+            n++
+        }
+    }
     LaunchedEffect(vm.items.size, vm.items.lastOrNull()) {
         if (vm.items.isNotEmpty() && stick) {
-            listState.scrollToItem(vm.items.lastIndex)
-            listState.scrollBy(100000f)
+            toBottom()
         }
     }
 
@@ -215,10 +224,7 @@ fun ChatScreen(
                         androidx.compose.material3.SmallFloatingActionButton(
                             onClick = {
                                 stick = true
-                                scope.launch {
-                                    listState.scrollToItem(vm.items.lastIndex)
-                                    listState.scrollBy(100000f)
-                                }
+                                scope.launch { toBottom() }
                             },
                             modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
                         ) { Text("↓") }
