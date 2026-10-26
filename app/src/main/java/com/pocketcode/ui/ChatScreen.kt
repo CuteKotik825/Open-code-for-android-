@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -76,6 +77,7 @@ fun ChatScreen(
     onOpenOcSessions: () -> Unit = {},
 ) {
     var showNewChat by remember { mutableStateOf(false) }
+    val imeOpen = androidx.compose.foundation.layout.WindowInsets.isImeVisible
     var moreMenu by remember { mutableStateOf(false) }
     var dlg by remember { mutableStateOf("") }
     var notesDraft by remember { mutableStateOf("") }
@@ -223,7 +225,7 @@ fun ChatScreen(
                     }
                 }
             }
-            if (vm.queue.isNotEmpty() || (vm.running && input.isNotBlank() && !androidx.compose.foundation.layout.WindowInsets.isImeVisible)) {
+            if (vm.queue.isNotEmpty() || (vm.running && input.isNotBlank() && !imeOpen)) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -266,7 +268,6 @@ fun ChatScreen(
                     TextButton(onClick = { showChanges = true }) { Text("Правки (${vm.changes.size})") }
                 }
             }
-            val imeOpen = androidx.compose.foundation.layout.WindowInsets.isImeVisible
             if (vm.openCodeMode && !imeOpen) {
                 OutlinedTextField(
                     value = vm.ocModel,
