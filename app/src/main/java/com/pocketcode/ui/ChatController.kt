@@ -2493,12 +2493,30 @@ class ChatController(
                 val buf = StringBuilder()
                 val parts = mutableMapOf<String, Int>()
                 var badJson = false
+                var lastOut = System.currentTimeMillis()
+                var idleItem: UiItem.Notice? = null
+                // Если OpenCode молчит (например, сервер ответил 429 и он ждёт повтора), показываем, что приложение живо
+                val watchdog = launch {
+                    while (true) {
+                        kotlinx.coroutines.delay(5_000)
+                        val idle = (System.currentTimeMillis() - lastOut) / 1000
+                        if (idle >= 20) {
+                            val n = UiItem.Notice("OpenCode молчит уже $idle с. Возможно, сервер перегружен или вернул 429 (слишком много запросов), и он ждёт повтора. Если долго ничего нет, нажми «Остановить» и повтори.")
+                            val old = idleItem
+                            val at = if (old == null) -1 else items.indexOfFirst { it === old }
+                            if (at >= 0) items[at] = n else items += n
+                            idleItem = n
+                        }
+                    }
+                }
                 val reader = launch(Dispatchers.IO) {
                   try {
                     val br = p.inputStream.bufferedReader()
                     while (true) {
                         val line = br.readLine() ?: break
                         val clean = Secrets.mask(ansi.replace(line, "").substringAfterLast('\r'))
+                        lastOut = System.currentTimeMillis()
+                        idleItem?.let { old -> withContext(Dispatchers.Main) { items.removeAll { it === old } }; idleItem = null }
                         if (clean.isBlank() && buf.isEmpty()) continue
                         buf.append(clean).append('\n')
                         if (cards && !clean.trimStart().startsWith("{") && badJson) continue
@@ -2523,6 +2541,9 @@ class ChatController(
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     p.destroyForcibly()
                     throw e
+                } finally {
+                    watchdog.cancel()
+                    idleItem?.let { old -> items.removeAll { it === old } }
                 }
                 val code = withContext(Dispatchers.IO) { p.waitFor() }
                 if (placeholder && cards && idx < items.size && (items[idx] as? UiItem.Assistant)?.text?.startsWith("⏳") == true) items.removeAt(idx)
