@@ -2389,6 +2389,9 @@ class ChatController(
     private var ocRetries = 0
 
     /** Разбор одной строки `opencode run --format json`: возвращает true, если строка обработана как событие. */
+    // токены текущего запуска OpenCode (из событий step-finish, если OpenCode их прислал)
+    private var ocTokIn = 0; private var ocTokOut = 0; private var ocTokCache = 0; private var ocTokSeen = false
+
     private fun handleOcEvent(line: String, parts: MutableMap<String, Int>): Boolean {
         val obj = try {
             kotlinx.serialization.json.Json.parseToJsonElement(line) as? kotlinx.serialization.json.JsonObject
@@ -2417,6 +2420,15 @@ class ChatController(
         }
         val id = str(part, "id") ?: (str(part, "type") + items.size)
         when (str(part, "type")) {
+            "step-finish", "step_finish" -> {
+                val tk = part["tokens"] as? kotlinx.serialization.json.JsonObject
+                fun n(o: kotlinx.serialization.json.JsonObject?, k: String) = (o?.get(k) as? kotlinx.serialization.json.JsonPrimitive)?.content?.toDoubleOrNull()?.toInt() ?: 0
+                if (tk != null) {
+                    ocTokIn += n(tk, "input"); ocTokOut += n(tk, "output") + n(tk, "reasoning")
+                    ocTokCache += n(tk["cache"] as? kotlinx.serialization.json.JsonObject, "read")
+                    ocTokSeen = true
+                }
+            }
             "text" -> {
                 val text = str(part, "text").orEmpty()
                 if (text.isBlank()) return true
@@ -2469,6 +2481,7 @@ class ChatController(
         val cmd = perm + "opencode run" + (if (cards) " --format json" else "") + resume + model + " " + q
         val myRun = ++runId
         var retryScheduled = false
+        ocTokIn = 0; ocTokOut = 0; ocTokCache = 0; ocTokSeen = false
         job = scope.launch {
             var proc: Process? = null
             try {
@@ -2515,6 +2528,9 @@ class ChatController(
                 if (placeholder && cards && idx < items.size && (items[idx] as? UiItem.Assistant)?.text?.startsWith("⏳") == true) items.removeAt(idx)
                 setOcContinue(true)
                 val text = buf.toString()
+                // Токены: точные из событий OpenCode, иначе оценка по длине текста (≈3 символа на токен)
+                if (ocTokSeen) recordUsage(ocTokIn, ocTokOut, ocTokCache)
+                else if (code == 0 && text.isNotBlank()) recordUsage(prompt.length / 3 + 1, text.length / 3 + 1, 0)
                 if (code != 0 && netErr.containsMatchIn(text) && ocRetries < 4) {
                     ocRetries++
                     retryScheduled = true
