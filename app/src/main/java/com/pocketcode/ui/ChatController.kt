@@ -779,6 +779,30 @@ class ChatController(
         } else items += UiItem.Notice("— Сессия и чат сброшены полностью: новый id, без истории —")
     }
 
+    /** Сброс сессии, при котором всё с выбранного сообщения и ниже остаётся в чате и переносится в новую беседу. */
+    fun resetSessionKeepFrom(index: Int) {
+        if (running || index !in items.indices) return
+        val reasoning = ocLastReasoning
+        val kept = items.drop(index).filter { !(it is UiItem.Assistant && it.text.startsWith("⏳")) }
+        val sb = StringBuilder("[Контекст из предыдущей беседы: сессия была сброшена, вот выбранная часть переписки]\n")
+        for (it in kept) when (it) {
+            is UiItem.User -> sb.append("Я: ").append(it.text.take(3000)).append("\n\n")
+            is UiItem.Assistant -> sb.append("Ты: ").append(it.text.take(3000)).append("\n\n")
+            is UiItem.Tool -> sb.append("(инструмент ").append(it.name).append(": ").append(it.description.take(200).replace('\n', ' ')).append(")\n")
+            else -> {}
+        }
+        if (reasoning.isNotBlank()) sb.append("Твоё последнее рассуждение:\n").append(reasoning.take(2000)).append("\n")
+        val carry = sb.toString().take(14_000)
+        newChat()
+        ocSessionId = null
+        ocSessionTitle = ""
+        setOcContinue(false)
+        ocCtxTokens = 0
+        items.addAll(kept.filter { it is UiItem.User || it is UiItem.Assistant || it is UiItem.Tool })
+        items += UiItem.Notice("— Сессия сброшена: новый id. Сообщения выше перенесутся в следующий запрос —")
+        ocCarry = carry
+    }
+
     fun newChat() {
         ocContinue = false
         cancelRun()

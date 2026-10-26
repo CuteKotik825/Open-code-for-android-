@@ -80,6 +80,7 @@ fun ChatScreen(
     val imeOpen = androidx.compose.foundation.layout.WindowInsets.isImeVisible
     var moreMenu by remember { mutableStateOf(false) }
     var dlg by remember { mutableStateOf("") }
+    var pickFrom by remember { mutableStateOf(0) }
     var notesDraft by remember { mutableStateOf("") }
     var searchQ by remember { mutableStateOf("") }
     var newTpl by remember { mutableStateOf("") }
@@ -155,6 +156,7 @@ fun ChatScreen(
                             DropdownMenuItem(text = { Text("Что в контексте") }, onClick = { moreMenu = false; onOpenContext() })
                             DropdownMenuItem(text = { Text("Экспорт чата в Markdown") }, onClick = { moreMenu = false; onExport() })
                             if (vm.openCodeMode) DropdownMenuItem(text = { Text("Сбросить сессию (оставить последнее)") }, onClick = { moreMenu = false; vm.resetSessionAndChat(true) })
+                            if (vm.openCodeMode) DropdownMenuItem(text = { Text("Сбросить, выбрав с какого сообщения") }, onClick = { moreMenu = false; pickFrom = vm.items.indexOfLast { it is UiItem.User }.coerceAtLeast(0); dlg = "resetpick" })
                             if (vm.openCodeMode) DropdownMenuItem(text = { Text("Сбросить сессию и чат полностью") }, onClick = { moreMenu = false; vm.resetSessionAndChat(false) })
                             if (vm.openCodeMode) DropdownMenuItem(text = { Text("Сжать беседу") }, onClick = { moreMenu = false; vm.compactOcSession() })
                             DropdownMenuItem(text = { Text("Поиск по чату") }, onClick = { moreMenu = false; searchQ = ""; dlg = "search" })
@@ -505,6 +507,28 @@ fun ChatScreen(
         )
     }
 
+    if (dlg == "resetpick") {
+        val shownIdx = vm.items.indices.filter { vm.items[it] is UiItem.User || vm.items[it] is UiItem.Assistant }.takeLast(40)
+        AlertDialog(
+            onDismissRequest = { dlg = "" },
+            title = { Text("С какого сообщения оставить") },
+            text = {
+                Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+                    Text("Выбранное и всё ниже останется в чате и уйдёт в первый запрос новой сессии. Всё выше забудется.", style = MaterialTheme.typography.bodySmall)
+                    shownIdx.forEach { i ->
+                        val it = vm.items[i]
+                        val who = if (it is UiItem.User) "🧑" else "🤖"
+                        val t = when (it) { is UiItem.User -> it.text; is UiItem.Assistant -> it.text; else -> "" }.replace("\n", " ").take(90)
+                        TextButton(onClick = { pickFrom = i }, modifier = Modifier.fillMaxWidth()) {
+                            Text((if (i == pickFrom) "▶ " else if (i > pickFrom) "│ " else "   ") + who + " " + t, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.resetSessionKeepFrom(pickFrom); dlg = "" }) { Text("Сбросить") } },
+            dismissButton = { TextButton(onClick = { dlg = "" }) { Text("Отмена") } },
+        )
+    }
     if (dlg == "search") {
         val q = searchQ.trim()
         val hits = if (q.length < 2) emptyList() else vm.items.mapIndexedNotNull { i, it ->
