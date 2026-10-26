@@ -2394,7 +2394,16 @@ class ChatController(
             kotlinx.serialization.json.Json.parseToJsonElement(line) as? kotlinx.serialization.json.JsonObject
         } catch (e: Exception) {
             null
-        } ?: return false
+        } ?: run {
+            // Строка JSON оборвана или повреждена: достаём что можно, сырой текст в чат не выводим
+            val tool = Regex("\"tool\":\"(\\w+)\"").find(line)?.groupValues?.get(1)
+            if (tool != null) {
+                val cmd = Regex("\"(?:command|filePath|path|pattern|url)\":\"((?:[^\"\\\\]|\\\\.)*)\"").find(line)?.groupValues?.get(1)?.replace("\\n", " ")?.replace("\\\"", "\"").orEmpty()
+                val failed = Regex("\"status\":\"error\"").containsMatchIn(line)
+                items += UiItem.Tool(tool, Secrets.mask(cmd.take(300)), "(вывод слишком длинный или оборван, показать нельзя)", failed)
+            }
+            return true
+        }
         fun str(o: kotlinx.serialization.json.JsonObject?, k: String) = (o?.get(k) as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
         val type = str(obj, "type")
         val part = obj["part"] as? kotlinx.serialization.json.JsonObject
@@ -2470,6 +2479,7 @@ class ChatController(
                 val p = proc
                 val buf = StringBuilder()
                 val parts = mutableMapOf<String, Int>()
+                var badJson = false
                 val reader = launch(Dispatchers.IO) {
                   try {
                     val br = p.inputStream.bufferedReader()
@@ -2478,11 +2488,14 @@ class ChatController(
                         val clean = Secrets.mask(ansi.replace(line, "").substringAfterLast('\r'))
                         if (clean.isBlank() && buf.isEmpty()) continue
                         buf.append(clean).append('\n')
+                        if (cards && !clean.trimStart().startsWith("{") && badJson) continue
+                        badJson = false
                         if (cards && clean.trimStart().startsWith("{")) {
                             val handled = withContext(Dispatchers.Main) {
                                 if (placeholder && idx < items.size) { items.removeAt(idx); placeholder = false }
                                 handleOcEvent(clean.trim(), parts)
                             }
+                            if (!clean.trimEnd().endsWith("}")) badJson = true
                             if (handled) continue
                         }
                         val snapshot = buf.toString().takeLast(60_000)
