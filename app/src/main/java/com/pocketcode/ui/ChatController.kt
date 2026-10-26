@@ -2027,6 +2027,17 @@ class ChatController(
     }
 
     /** Экспорт беседы через файл: при выводе в pipe opencode (Bun) обрывает длинный JSON на ~64 КБ, файл пишется целиком. */
+    private suspend fun ocViaFile(cmd: String, tag: String, timeoutSec: Long): String {
+        val rel = "tmp/pc_${tag}_${System.nanoTime()}.json"
+        val f = File(linuxEnv.rootfs, rel)
+        return try {
+            runFull("$cmd > /$rel 2>/dev/null", timeoutSec)
+            if (f.exists() && f.length() > 0) withContext(Dispatchers.IO) { f.readText() } else runFull(cmd, timeoutSec)
+        } finally {
+            runCatching { f.delete() }
+        }
+    }
+
     private suspend fun ocExport(id: String, timeoutSec: Long): String {
         val safe = id.replace("'", "").replace(Regex("[^A-Za-z0-9_-]"), "")
         val rel = "tmp/pc_export_$safe.json"
@@ -2094,7 +2105,7 @@ class ChatController(
         ocSessionsMsg = "Загружаю список…"
         scope.launch {
             val raw = try {
-                runFull("opencode session list --format json -n 100", 120)
+                ocViaFile("opencode session list --format json -n 100", "list", 120)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -2109,7 +2120,7 @@ class ChatController(
                     val t = (o["time"] as? kotlinx.serialization.json.JsonObject)?.get("updated") ?: o["updated"] ?: o["time"]
                     OcSession(id, title, fmtTime(t))
                 }
-                ocSessionsMsg = if (ocSessions.isEmpty()) "Бесед пока нет." else null
+                ocSessionsMsg = if (ocSessions.isEmpty()) "Бесед пока нет (OpenCode показывает беседы текущего проекта: «${currentProject}»). Ответ: " + Secrets.mask(raw.take(200)) else null
                 loadOcPreviews()
             } catch (e: Throwable) {
                 ocSessions = emptyList()
