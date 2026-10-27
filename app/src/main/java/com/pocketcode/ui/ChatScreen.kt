@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.heightIn
@@ -75,12 +76,16 @@ fun ChatScreen(
     onOpenGit: () -> Unit = {},
     onMenu: () -> Unit = {},
     onOpenOcSessions: () -> Unit = {},
+    onOpenDiff: () -> Unit = {},
 ) {
     var showNewChat by remember { mutableStateOf(false) }
     val imeOpen = androidx.compose.foundation.layout.WindowInsets.isImeVisible
     var moreMenu by remember { mutableStateOf(false) }
     var dlg by remember { mutableStateOf("") }
     var pickFrom by remember { mutableStateOf(0) }
+    var rewindAt by remember { mutableStateOf(-1) }
+    var mentionFiles by remember { mutableStateOf<List<String>>(emptyList()) }
+    val atTok = Regex("(?:^|\\s)@([\\w./\\-]*)$").find(input)
     var notesDraft by remember { mutableStateOf("") }
     var searchQ by remember { mutableStateOf("") }
     var newTpl by remember { mutableStateOf("") }
@@ -223,7 +228,16 @@ fun ChatScreen(
                         contentPadding = PaddingValues(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        itemsIndexed(vm.items, key = { i, _ -> i }) { _, item -> ItemView(item) }
+                        itemsIndexed(vm.items, key = { i, _ -> i }) { i, item ->
+                            Column {
+                                ItemView(item)
+                                if (item is UiItem.User && !vm.running) {
+                                    TextButton(onClick = { rewindAt = i }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                                        Text("↩ вернуться к этому месту", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                        }
                     }
                     if (!stick) {
                         androidx.compose.material3.SmallFloatingActionButton(
@@ -332,7 +346,18 @@ fun ChatScreen(
                         }
                     },
                     confirmButton = { TextButton(onClick = { showChanges = false }) { Text("Закрыть") } },
+                    dismissButton = { TextButton(onClick = { showChanges = false; onOpenDiff() }) { Text("Разобрать по блокам") } },
                 )
+            }
+            androidx.compose.runtime.LaunchedEffect(atTok != null, vm.currentProject) { if (atTok != null) mentionFiles = vm.projectFiles() }
+            if (atTok != null) {
+                val q = atTok.groupValues[1]
+                val sugg = mentionFiles.filter { it.contains(q, ignoreCase = true) }.take(10)
+                if (sugg.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    sugg.forEach { f ->
+                        androidx.compose.material3.AssistChip(onClick = { input = input.removeSuffix("@$q") + "@$f " }, label = { Text(f.takeLast(34)) })
+                    }
+                }
             }
             val lastIt = vm.items.lastOrNull()
             if (!vm.running && lastIt is UiItem.Assistant && !imeOpen && lastIt.text.trimEnd().endsWith("?") && !lastIt.text.startsWith("⏳")) {
@@ -515,6 +540,15 @@ fun ChatScreen(
         )
     }
 
+    if (rewindAt >= 0) {
+        AlertDialog(
+            onDismissRequest = { rewindAt = -1 },
+            title = { Text("Вернуться к этому сообщению?") },
+            text = { Text("Чат обрежется до сообщения перед этим, файлы проекта вернутся к состоянию до него (по снимку), память модели обрежется так же. Перед откатом делается ещё один снимок, чтобы его можно было отменить. В режиме OpenCode память ведёт сам OpenCode, и её это не откатит.") },
+            confirmButton = { TextButton(onClick = { vm.rewindTo(rewindAt); rewindAt = -1 }) { Text("Вернуться") } },
+            dismissButton = { TextButton(onClick = { rewindAt = -1 }) { Text("Отмена") } },
+        )
+    }
     if (dlg == "resetpick") {
         val shownIdx = vm.items.indices.filter { vm.items[it] is UiItem.User || vm.items[it] is UiItem.Assistant }.takeLast(40)
         AlertDialog(

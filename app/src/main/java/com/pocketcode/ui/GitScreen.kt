@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.sp
 fun GitScreen(vm: ChatController, onBack: () -> Unit) {
     var message by remember { mutableStateOf("") }
     var branch by remember { mutableStateOf("") }
+    var prTitle by remember { mutableStateOf("") }
+    var prBody by remember { mutableStateOf("") }
     LaunchedEffect(Unit) { vm.gitRun("status") }
     Scaffold(topBar = {
         TopAppBar(title = { Text("Git · ${vm.currentProject}") }, navigationIcon = { TextButton(onClick = onBack) { Text("Назад") } })
@@ -64,6 +66,18 @@ fun GitScreen(vm: ChatController, onBack: () -> Unit) {
                 OutlinedButton(onClick = { vm.gitRun("push") }, enabled = !vm.gitBusy) { Text("Push") }
             }
             Text("Токен GitHub берётся из настроек.", style = MaterialTheme.typography.bodySmall)
+            Text("GitHub", style = MaterialTheme.typography.titleSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { vm.githubRun("pr_list") }, enabled = !vm.gitBusy) { Text("Pull Request") }
+                OutlinedButton(onClick = { vm.githubRun("issue_list") }, enabled = !vm.gitBusy) { Text("Issues") }
+                OutlinedButton(onClick = { vm.githubRun("checks") }, enabled = !vm.gitBusy) { Text("Проверки") }
+            }
+            OutlinedTextField(value = prTitle, onValueChange = { prTitle = it }, label = { Text("Заголовок нового Pull Request") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = prBody, onValueChange = { prBody = it }, label = { Text("Описание") }, modifier = Modifier.fillMaxWidth())
+            Button(onClick = { vm.githubRun("pr_create", "title" to prTitle, "body" to prBody); prTitle = ""; prBody = "" }, enabled = !vm.gitBusy && prTitle.isNotBlank()) {
+                Text("Создать Pull Request из текущей ветки")
+            }
+            Text("Сначала отправь ветку кнопкой Push.", style = MaterialTheme.typography.labelSmall)
             Text("Ветка", style = MaterialTheme.typography.titleSmall)
             OutlinedTextField(value = branch, onValueChange = { branch = it }, label = { Text("Имя ветки") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

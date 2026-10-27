@@ -49,7 +49,7 @@ import com.pocketcode.ui.ProjectsScreen
 import com.pocketcode.ui.SessionsScreen
 import com.pocketcode.ui.SettingsScreen
 
-private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS, REMOTE }
+private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS, REMOTE, DIFF, SEARCH }
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
@@ -190,6 +190,7 @@ class MainActivity : ComponentActivity() {
                                     "🗂 Файлы" to Screen.FILES,
                                     "🤖 Диалоги OpenCode" to Screen.OCSESSIONS,
                                     "🔄 Синхронизация и пульт" to Screen.REMOTE,
+                                    "🔎 Поиск по проекту" to Screen.SEARCH,
                                     "⌨️ Терминал" to Screen.TERMINAL,
                                     "🌿 Git" to Screen.GIT,
                                     "🧠 Что в контексте" to Screen.CONTEXT,
@@ -225,6 +226,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenTerminal = { screen = Screen.TERMINAL },
                                 onOpenGit = { screen = Screen.GIT },
                                 onOpenOcSessions = { screen = Screen.OCSESSIONS },
+                                onOpenDiff = { screen = Screen.DIFF },
                                 onMenu = { dScope.launch { drawer.open() } },
                                 onExport = { exportMd.launch("chat-" + vm.currentProject + ".md") },
                                 onPickFolder = {
@@ -267,6 +269,14 @@ class MainActivity : ComponentActivity() {
                             onOpenCompare = { screen = Screen.COMPARE },
                             onBack = { screen = Screen.CHAT },
                         )
+                    }
+                    Screen.DIFF -> {
+                        BackHandler { screen = Screen.CHAT }
+                        com.pocketcode.ui.DiffScreen(vm, onBack = { screen = Screen.CHAT })
+                    }
+                    Screen.SEARCH -> {
+                        BackHandler { screen = Screen.CHAT }
+                        com.pocketcode.ui.SearchScreen(vm, onBack = { screen = Screen.CHAT }, onPicked = { screen = Screen.CHAT })
                     }
                     Screen.REMOTE -> {
                         BackHandler { screen = Screen.CHAT }

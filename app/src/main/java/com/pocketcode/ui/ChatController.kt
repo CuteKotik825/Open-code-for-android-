@@ -2407,6 +2407,104 @@ class ChatController(
 
     private val ansi = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]")
 
+    // ---------- упоминания файлов, поиск, правки по блокам, откат к сообщению ----------
+    private val noWalk = setOf(".git", "node_modules", "__pycache__", ".gradle", "build", "dist", ".venv", "venv", ".idea", ".cache")
+
+    /** Файлы проекта для подсказок после «@». */
+    suspend fun projectFiles(): List<String> = withContext(Dispatchers.IO) {
+        val root = workspace.root
+        val out = ArrayList<String>()
+        root.walkTopDown().onEnter { it == root || it.name !in noWalk }.forEach { f ->
+            if (f.isFile && out.size < 4000) out += f.relativeTo(root).invariantSeparatorsPath
+        }
+        out.sorted()
+    }
+
+    /** Подставляет в запрос содержимое файлов, упомянутых как @путь. */
+    private fun mentionExpand(text: String): String {
+        val root = workspace.root.canonicalFile
+        val seen = LinkedHashSet<String>()
+        Regex("""(?<![\w@])@([\w./\-]+)""").findAll(text).forEach { seen += it.groupValues[1].trimEnd('.') }
+        val sb = StringBuilder(text)
+        for (p in seen.take(6)) {
+            val f = runCatching { File(root, p).canonicalFile }.getOrNull() ?: continue
+            if (!f.path.startsWith(root.path) || !f.isFile || f.length() > 60_000) continue
+            val body = runCatching { f.readText() }.getOrNull() ?: continue
+            sb.append("\n\n[Файл ").append(p).append("]\n```\n").append(body).append("\n```")
+        }
+        return sb.toString()
+    }
+
+    class SearchHit(val path: String, val line: Int, val text: String)
+    class SearchResult(val hits: List<SearchHit>, val message: String)
+
+    suspend fun searchProject(query: String, regex: Boolean, matchCase: Boolean): SearchResult = withContext(Dispatchers.IO) {
+        val root = workspace.root
+        val re = try {
+            Regex(if (regex) query else Regex.escape(query), if (matchCase) emptySet() else setOf(RegexOption.IGNORE_CASE))
+        } catch (e: Exception) { return@withContext SearchResult(emptyList(), "Неверное выражение: ${e.message}") }
+        val hits = ArrayList<SearchHit>()
+        var files = 0
+        root.walkTopDown().onEnter { it == root || it.name !in noWalk }.forEach { f ->
+            if (!f.isFile || f.length() > 600_000 || hits.size >= 300) return@forEach
+            files++
+            val lines = runCatching { f.readLines() }.getOrNull() ?: return@forEach
+            val rel = f.relativeTo(root).invariantSeparatorsPath
+            for ((i, l) in lines.withIndex()) if (re.containsMatchIn(l)) { hits += SearchHit(rel, i + 1, l); if (hits.size >= 300) break }
+        }
+        SearchResult(hits, "Найдено ${hits.size}${if (hits.size >= 300) "+" else ""} в файлах (просмотрено $files)")
+    }
+
+    fun readProjectFile(path: String): String? = runCatching { workspace.resolve(path).takeIf { it.isFile }?.readText() }.getOrNull()
+    fun writeProjectFile(path: String, text: String) {
+        runCatching { workspace.resolve(path).writeText(text) }
+        items += UiItem.Notice("Блок правки откатан в $path")
+    }
+
+    /** Возвращает проект и чат к моменту перед выбранным сообщением пользователя. */
+    fun rewindTo(index: Int) {
+        if (running || projectBusy) return
+        val msgItem = items.getOrNull(index) as? UiItem.User ?: return
+        val allUsers = items.count { it is UiItem.User }
+        val k = items.take(index).count { it is UiItem.User }
+        projectBusy = true
+        scope.launch {
+            var note = ""
+            try {
+                val label = msgItem.text.replace('\n', ' ').take(100)
+                val snap = snapshots.list(currentProject).filter { it.label == label }.maxByOrNull { it.id }
+                if (snap != null) { snapshots.restore(currentProject, workspace.root, snap.id); note = "Файлы возвращены к состоянию перед этим сообщением. " }
+                else note = "Снимка для этого сообщения нет, файлы не менялись. "
+                while (items.size > index) items.removeAt(items.lastIndex)
+                val userIdx = history.withIndex().filter { (_, m) -> m.role == "user" && m.blocks.none { it is com.pocketcode.llm.Block.ToolResult } }.map { it.index }
+                history = if (userIdx.size == allUsers && k < userIdx.size) history.take(userIdx[k]).toMutableList() else { note += "Память модели сброшена."; mutableListOf() }
+                agent = null
+                items += UiItem.Notice("— Откат к выбранному сообщению. $note—")
+                persist()
+            } catch (e: Exception) {
+                items += UiItem.Error("Откат не удался: ${e.message}")
+            } finally {
+                projectBusy = false
+                snapshotList = snapshots.list(currentProject)
+            }
+        }
+    }
+
+    fun githubRun(action: String, vararg args: Pair<String, String>) {
+        if (gitBusy) return
+        gitBusy = true
+        scope.launch {
+            val input = kotlinx.serialization.json.buildJsonObject {
+                put("action", kotlinx.serialization.json.JsonPrimitive(action))
+                for ((k, v) in args) if (k == "number") put(k, kotlinx.serialization.json.JsonPrimitive(v.toIntOrNull() ?: 0)) else put(k, kotlinx.serialization.json.JsonPrimitive(v))
+            }
+            gitOut = try {
+                Secrets.mask(com.pocketcode.tools.GitHubTool(workspace) { settings.githubToken }.run(input))
+            } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Throwable) { "Ошибка: ${x.message ?: x}" }
+            gitBusy = false
+        }
+    }
+
     // ---------- синхронизация проектов и удалённое управление (через приватный репозиторий GitHub) ----------
     private val syncMgr = SyncManager(app) { projectDir(it) }
     var syncRepo by mutableStateOf(settingsStore.rawGet("syncRepo").orEmpty())
@@ -3002,13 +3100,13 @@ class ChatController(
         return true
     }
 
-    private fun sendViaOpenCode(prompt: String, isRetry: Boolean = false) {
+    private fun sendViaOpenCode(prompt: String, isRetry: Boolean = false, shown: String = prompt) {
         if (!linuxActive) {
             items += UiItem.Error("Режим OpenCode работает только в Linux: включи его и установи в разделе «Проекты», затем «Терминал» → «Установить OpenCode».")
             return
         }
         if (currentId == null) currentId = UUID.randomUUID().toString()
-        if (!isRetry) { items += UiItem.User(prompt, 0); ocRetries = 0; ocSwitchTries = 0; ocFbUsed = false; ocAddLong("ocRuns", System.currentTimeMillis(), 300); accBump(false) }
+        if (!isRetry) { items += UiItem.User(shown, 0); ocRetries = 0; ocSwitchTries = 0; ocFbUsed = false; ocAddLong("ocRuns", System.currentTimeMillis(), 300); accBump(false) }
         val reply = UiItem.Assistant("⏳ OpenCode запускается и думает… (в Linux на телефоне первый ответ может идти минуту)")
         items += reply
         val idx = items.lastIndex
@@ -3191,7 +3289,7 @@ class ChatController(
     fun send(text: String, auto: Boolean = false) {
         val trimmed = text.trim()
         if ((trimmed.isEmpty() && pendingImages.isEmpty()) || running) return
-        if (openCodeMode && trimmed.isNotEmpty() && !trimmed.startsWith("/")) { sendViaOpenCode(extensions.expand(trimmed) ?: trimmed); return }
+        if (openCodeMode && trimmed.isNotEmpty() && !trimmed.startsWith("/")) { sendViaOpenCode(mentionExpand(extensions.expand(trimmed) ?: trimmed), shown = trimmed); return }
         if (settings.apiKey.isBlank()) {
             items += UiItem.Error("Сначала укажи API-ключ в настройках (шестерёнка сверху).")
             return
@@ -3227,7 +3325,7 @@ class ChatController(
                 if (snap == null) {
                     items += UiItem.Notice("Снимок проекта не создан (проект слишком большой), откат этой задачи недоступен.")
                 }
-                current.execute(planNote + (expanded ?: trimmed), images).collect { handle(it) }
+                current.execute(planNote + mentionExpand(expanded ?: trimmed), images).collect { handle(it) }
             } finally {
                 if (myRun == runId) {
                     // Нормальное завершение; при отмене всё уже убрал cancelRun()

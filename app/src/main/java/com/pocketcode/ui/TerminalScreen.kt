@@ -120,6 +120,32 @@ fun TerminalScreen(vm: ChatController, onBack: () -> Unit) {
                     OutlinedButton(onClick = { vm.termStop() }) { Text("Стоп") }
                 } else Button(onClick = { vm.termRun(cmd, 600, tty); cmd = "" }, enabled = cmd.isNotBlank()) { Text("▶") }
             }
+            BgPanel(vm)
+        }
+    }
+}
+
+@Composable
+private fun BgPanel(vm: ChatController) {
+    var tick by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
+    var open by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(2000); tick++ } }
+    tick
+    val all = vm.bgProcs.all()
+    if (all.isEmpty()) return
+    Text("Фоновые процессы (запущены агентом)", style = MaterialTheme.typography.titleSmall)
+    all.forEach { e ->
+        val alive = e.process.isAlive
+        Column(Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text((if (alive) "● " else "○ ") + e.name + " · " + e.command.take(40), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { open = if (open == e.name) null else e.name }) { Text("Лог") }
+                if (alive) TextButton(onClick = { runCatching { e.process.destroy() } }) { Text("Стоп") }
+            }
+            if (open == e.name) {
+                val tail = synchronized(e.buffer) { e.buffer.toString().takeLast(3000) }
+                Text(tail.ifEmpty { "(пока пусто)" }, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+            }
         }
     }
 }
