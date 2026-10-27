@@ -32,6 +32,11 @@ import com.pocketcode.AppLog
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.coroutines.delay
+import com.pocketcode.SyncManager
+import com.pocketcode.SyncScheduler
+import com.pocketcode.RemoteRow
+import com.pocketcode.RemoteState
+import com.pocketcode.SyncResult
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.withLock
 import com.pocketcode.tools.GitHubTool
@@ -2401,6 +2406,165 @@ class ChatController(
     }
 
     private val ansi = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]")
+
+    // ---------- синхронизация проектов и удалённое управление (через приватный репозиторий GitHub) ----------
+    private val syncMgr = SyncManager(app) { projectDir(it) }
+    var syncRepo by mutableStateOf(settingsStore.rawGet("syncRepo").orEmpty())
+        private set
+    var syncProjects by mutableStateOf(settingsStore.rawGet("syncProjects")?.split(',')?.filter { it.isNotBlank() }?.toSet() ?: emptySet<String>())
+        private set
+    var syncInterval by mutableIntStateOf(settingsStore.rawGet("syncInterval")?.toIntOrNull() ?: 0)
+        private set
+    var syncHost by mutableStateOf(settingsStore.rawGet("syncHost") == "1")
+        private set
+    var syncLive by mutableStateOf(settingsStore.rawGet("syncLive") == "1")
+        private set
+    var syncStatus by mutableStateOf("")
+        private set
+    var syncBusy by mutableStateOf(false)
+        private set
+    var remoteRows by mutableStateOf<List<RemoteRow>>(emptyList())
+        private set
+    var remoteProjectNames by mutableStateOf<List<String>>(emptyList())
+        private set
+    private var syncLiveJob: kotlinx.coroutines.Job? = null
+    val deviceName: String get() = android.os.Build.MODEL ?: "телефон"
+
+    fun setSyncRepoValue(v: String) { syncRepo = v.trim(); settingsStore.rawPut("syncRepo", syncRepo) }
+    fun toggleSyncProject(name: String) {
+        syncProjects = if (name in syncProjects) syncProjects - name else syncProjects + name
+        settingsStore.rawPut("syncProjects", syncProjects.joinToString(","))
+    }
+    fun setSyncIntervalValue(min: Int) {
+        syncInterval = min
+        settingsStore.rawPut("syncInterval", min.toString())
+        SyncScheduler.apply(app, if (syncRepo.isBlank()) 0 else min)
+    }
+    fun setSyncHostValue(v: Boolean) { syncHost = v; settingsStore.rawPut("syncHost", if (v) "1" else "0") }
+
+    private suspend fun runSync(): SyncResult {
+        syncBusy = true
+        syncStatus = "Синхронизирую…"
+        val r = syncMgr.sync(syncRepo, settings.githubToken, syncProjects.toList(), deviceName)
+        syncStatus = (if (r.ok) "✓ " else "✗ ") + r.message + "  (" + java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date()) + ")"
+        remoteProjectNames = syncMgr.remoteProjects()
+        remoteRows = syncMgr.rows()
+        syncBusy = false
+        return r
+    }
+
+    fun syncNow() {
+        if (syncBusy) return
+        scope.launch { runSync() }
+    }
+
+    /** Один цикл: синхронизация и, если телефон исполнитель, выполнение полученных задач. */
+    fun syncTick(): kotlinx.coroutines.Job = scope.launch {
+        if (syncBusy || syncRepo.isBlank()) return@launch
+        val r = runSync()
+        if (r.ok && syncHost) processRemote()
+    }
+
+    private suspend fun processRemote() {
+        while (true) {
+            if (running) return
+            val t = syncMgr.pending().firstOrNull() ?: return
+            if (!projectDir(t.project).isDirectory) {
+                syncMgr.writeState(RemoteState(t.id, "error", "На телефоне-исполнителе нет проекта «${t.project}».", deviceName))
+                runSync()
+                continue
+            }
+            syncMgr.writeState(RemoteState(t.id, "running", "", deviceName))
+            runSync()
+            val answer = runCatching { runRemoteTask(t.project, t.prompt) }.getOrElse { "Ошибка: ${it.message}" }
+            syncMgr.writeState(RemoteState(t.id, "done", Secrets.mask(answer.take(4000)), deviceName))
+            runSync()
+        }
+    }
+
+    private suspend fun runRemoteTask(project: String, prompt: String): String {
+        switchTo(project)
+        unattended = true
+        try {
+            send("[Задача пришла с другого телефона, пользователя рядом нет: подтверждений не будет, небезопасные действия отклоняются. Не пытайся их обойти.]\n\n" + prompt)
+            delay(1500)
+            val deadline = System.currentTimeMillis() + 25 * 60_000
+            while (running && System.currentTimeMillis() < deadline) delay(1500)
+        } finally {
+            unattended = false
+        }
+        return (items.lastOrNull { it is UiItem.Assistant } as? UiItem.Assistant)?.text
+            ?: (items.lastOrNull { it is UiItem.Error } as? UiItem.Error)?.text ?: "(ответа нет)"
+    }
+
+    fun refreshRemote() {
+        if (syncBusy) return
+        scope.launch { runSync() }
+    }
+
+    fun sendRemoteTask(project: String, text: String) {
+        if (text.isBlank() || project.isBlank()) return
+        scope.launch {
+            withContext(Dispatchers.IO) { syncMgr.addTask(project, text.trim(), deviceName) }
+            remoteRows = syncMgr.rows()
+            runSync()
+        }
+    }
+
+    fun clearRemoteFinished() {
+        scope.launch {
+            withContext(Dispatchers.IO) { syncMgr.clearFinished() }
+            remoteRows = syncMgr.rows()
+            runSync()
+        }
+    }
+
+    /** Постоянная проверка очереди раз в 2 минуты (держит приложение в фоне, расходует больше батареи). */
+    fun setSyncLiveValue(v: Boolean) {
+        syncLive = v
+        settingsStore.rawPut("syncLive", if (v) "1" else "0")
+        syncLiveJob?.cancel(); syncLiveJob = null
+        if (v && !isTab) {
+            startService()
+            syncLiveJob = scope.launch {
+                while (kotlinx.coroutines.isActive) {
+                    runCatching { syncTick().join() }
+                    delay(120_000)
+                }
+            }
+        } else stopService()
+    }
+
+    fun resumeSyncLive() { if (!isTab && syncLive && syncLiveJob == null) setSyncLiveValue(true) }
+
+    /** Создаёт приватный репозиторий на GitHub (нужен токен с правом repo) и подставляет его адрес. */
+    fun createSyncRepo(name: String) {
+        val n = name.trim().ifEmpty { "pocketcode-sync" }.replace(Regex("[^A-Za-z0-9._-]"), "-")
+        scope.launch {
+            syncStatus = "Создаю репозиторий…"
+            val msg = withContext(Dispatchers.IO) {
+                try {
+                    val conn = java.net.URL("https://api.github.com/user/repos").openConnection() as java.net.HttpURLConnection
+                    conn.requestMethod = "POST"
+                    conn.setRequestProperty("Authorization", "Bearer ${settings.githubToken}")
+                    conn.setRequestProperty("Accept", "application/vnd.github+json")
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.doOutput = true
+                    conn.outputStream.use { it.write("""{"name":"$n","private":true,"description":"PocketCode sync"}""".toByteArray()) }
+                    val code = conn.responseCode
+                    val body = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    if (code in 200..299) {
+                        val url = (kotlinx.serialization.json.Json.parseToJsonElement(body) as kotlinx.serialization.json.JsonObject)["clone_url"]
+                            ?.let { (it as kotlinx.serialization.json.JsonPrimitive).content }.orEmpty()
+                        withContext(Dispatchers.Main) { setSyncRepoValue(url) }
+                        "✓ Приватный репозиторий создан: $url"
+                    } else if (code == 422) "✗ Такой репозиторий уже есть: впиши его адрес вручную (https://github.com/ты/$n.git)."
+                    else "✗ GitHub ответил $code. Проверь токен (нужно право repo): " + Secrets.mask(body.take(200))
+                } catch (e: Throwable) { "✗ Ошибка: ${e.message}" }
+            }
+            syncStatus = msg
+        }
+    }
 
     // --- тема, журнал запросов, закрепления, запасная модель, автосжатие ---
     var themeMode by mutableStateOf(settingsStore.rawGet("themeMode") ?: "system")

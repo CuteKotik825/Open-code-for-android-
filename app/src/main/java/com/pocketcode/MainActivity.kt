@@ -49,7 +49,7 @@ import com.pocketcode.ui.ProjectsScreen
 import com.pocketcode.ui.SessionsScreen
 import com.pocketcode.ui.SettingsScreen
 
-private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS }
+private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS, REMOTE }
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
@@ -124,6 +124,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         handleIntent(intent)
         locked = lockAvailable()
+        controller.resumeSyncLive()
         requestNotificationPermission()
         val actions = FileActions(
             pickFiles = { pickFiles.launch(arrayOf("*/*")) },
@@ -188,6 +189,7 @@ class MainActivity : ComponentActivity() {
                                     "📁 Проекты" to Screen.PROJECTS,
                                     "🗂 Файлы" to Screen.FILES,
                                     "🤖 Диалоги OpenCode" to Screen.OCSESSIONS,
+                                    "🔄 Синхронизация и пульт" to Screen.REMOTE,
                                     "⌨️ Терминал" to Screen.TERMINAL,
                                     "🌿 Git" to Screen.GIT,
                                     "🧠 Что в контексте" to Screen.CONTEXT,
@@ -265,6 +267,10 @@ class MainActivity : ComponentActivity() {
                             onOpenCompare = { screen = Screen.COMPARE },
                             onBack = { screen = Screen.CHAT },
                         )
+                    }
+                    Screen.REMOTE -> {
+                        BackHandler { screen = Screen.CHAT }
+                        com.pocketcode.ui.RemoteScreen(vm, onBack = { screen = Screen.CHAT })
                     }
                     Screen.OCSESSIONS -> {
                         BackHandler { screen = Screen.CHAT }
