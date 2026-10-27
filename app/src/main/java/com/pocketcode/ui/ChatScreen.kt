@@ -85,7 +85,6 @@ fun ChatScreen(
     var pickFrom by remember { mutableStateOf(0) }
     var rewindAt by remember { mutableStateOf(-1) }
     var mentionFiles by remember { mutableStateOf<List<String>>(emptyList()) }
-    val atTok = Regex("(?:^|\\s)@([\\w./\\-]*)$").find(input)
     var notesDraft by remember { mutableStateOf("") }
     var searchQ by remember { mutableStateOf("") }
     var newTpl by remember { mutableStateOf("") }
@@ -93,6 +92,7 @@ fun ChatScreen(
     var newProjectName by remember { mutableStateOf("") }
     var profileMenu by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
+    val atTok = Regex("(?:^|\\s)@([\\w./\\-]*)$").find(input)
     var showChanges by remember { mutableStateOf(false) }
     var showTodos by remember { mutableStateOf(false) }
     var confirmStop by remember { mutableStateOf(false) }
