@@ -2527,7 +2527,7 @@ class ChatController(
         if (v && !isTab) {
             startService()
             syncLiveJob = scope.launch {
-                while (kotlinx.coroutines.isActive) {
+                while (true) {
                     runCatching { syncTick().join() }
                     delay(120_000)
                 }
