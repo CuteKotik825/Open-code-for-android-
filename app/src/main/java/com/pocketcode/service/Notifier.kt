@@ -64,7 +64,7 @@ object Notifier {
     }
 
     /** Одноразовое уведомление: нужно подтверждение или агент закончил. */
-    fun alert(ctx: Context, title: String, text: String, tab: Int = -1) {
+    fun alert(ctx: Context, title: String, text: String, tab: Int = -1, continueTab: Int = -1) {
         runCatching {
             ensureChannels(ctx)
             fun act(allow: Boolean) = PendingIntent.getBroadcast(
@@ -82,6 +82,13 @@ object Notifier {
             if (tab >= 0) {
                 b.addAction(0, "Разрешить", act(true))
                 b.addAction(0, "Отклонить", act(false))
+            } else if (continueTab >= 0) {
+                val cont = PendingIntent.getBroadcast(
+                    ctx, 200 + continueTab,
+                    Intent(ctx, ApprovalReceiver::class.java).setAction(ACTION_APPROVAL).putExtra("tab", continueTab).putExtra("cont", true),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                )
+                b.addAction(0, "Продолжить", cont)
             }
             manager(ctx).notify(ALERT_ID, b.build())
         }

@@ -79,6 +79,19 @@ class SnapshotStore(private val dir: File) {
         }
     }
 
+    /** Текст файла из снимка (null, если файла нет или он не читается как текст). */
+    suspend fun readFile(project: String, id: Long, path: String): String? = withContext(Dispatchers.IO) {
+        val zip = File(projectDir(project), "$id.zip")
+        if (!zip.exists()) return@withContext null
+        ZipInputStream(zip.inputStream().buffered()).use { zin ->
+            while (true) {
+                val e = zin.nextEntry ?: break
+                if (e.name == path) return@withContext runCatching { zin.readBytes().decodeToString() }.getOrNull()
+            }
+        }
+        null
+    }
+
     suspend fun list(project: String): List<SnapshotMeta> = withContext(Dispatchers.IO) {
         val pdir = projectDir(project)
         (pdir.listFiles { f -> f.extension == "zip" } ?: emptyArray())

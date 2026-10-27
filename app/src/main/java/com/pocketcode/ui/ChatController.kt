@@ -1398,6 +1398,32 @@ class ChatController(
                 out += CheckResult("Linux (proot)", true, "не установлен (необязательно)")
                 checks = out.toList()
             }
+            if (linuxEnv.isInstalled()) {
+                step("OpenCode в Linux") {
+                    val v = runFull("opencode --version 2>&1", 40).lines().firstOrNull { it.isNotBlank() && !it.startsWith("[") }.orEmpty()
+                    require(v.isNotBlank() && !v.contains("not found", true)) { "не установлен (☰ → Терминал → «Установить OpenCode»)" }
+                    "версия $v"
+                }
+                step("Вход OpenCode") {
+                    refreshOcProviders(); refreshOcCustom(); refreshOcAccounts()
+                    require(ocProviders.isNotEmpty() || ocCustomProviders.isNotEmpty()) { "нет ключей: только бесплатные модели со своими лимитами (☰ → Диалоги OpenCode → «Ключ OpenCode»)" }
+                    "ключи: ${(ocProviders + ocCustomProviders).joinToString()}" + (if (ocActiveAccount.isNotEmpty()) ", аккаунт «$ocActiveAccount»" else "")
+                }
+                if (ocCustomProviders.isNotEmpty()) step("Свой провайдер OpenCode") {
+                    val r = ocCustomTest(ocCustomProviders.first())
+                    require(r.startsWith("HTTP 2")) { r.take(150) }
+                    r.lines().first()
+                }
+            }
+            step("Свободное место") {
+                val mb = app.filesDir.usableSpace / 1_048_576
+                require(mb > 200) { "осталось только $mb МБ, очисти кэш в «Диагностике»" }
+                "$mb МБ свободно"
+            }
+            if (syncRepo.isNotBlank()) step("Синхронизация") {
+                require(syncStatus.startsWith("✓") || syncStatus.isBlank()) { syncStatus.take(150) }
+                syncStatus.ifBlank { "ещё не запускалась" }
+            }
             if (rootEnabled) step("Root (su)") { rootShell.check().lines().first { it.isNotBlank() }.take(80) }
             checking = false
             AppLog.log("CHECK", "самопроверка: ${out.count { it.ok }}/${out.size} успешно")
@@ -1896,6 +1922,35 @@ class ChatController(
 
     // --- резервная копия настроек ---
     var backupMessage by mutableStateOf<String?>(null)
+    /** Пароль для шифрования копии (не сохраняется). Пусто — копия без шифрования. */
+    var backupPassword by mutableStateOf("")
+
+    private val backupPrefKeys = listOf(
+        "syncRepo", "syncProjects", "syncInterval", "syncHost", "ocFallback", "ocAutoSwitch", "ocAutoCompact", "ocRateRetryMin",
+        "ocBudget", "ocFresh", "ocModel", "ocCards", "themeMode", "templates", "stars", "ocPins", "ocTitles", "bigInput",
+    )
+
+    private fun cryptKey(password: String, salt: ByteArray): javax.crypto.spec.SecretKeySpec {
+        val f = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        val k = f.generateSecret(javax.crypto.spec.PBEKeySpec(password.toCharArray(), salt, 120_000, 256)).encoded
+        return javax.crypto.spec.SecretKeySpec(k, "AES")
+    }
+
+    private fun encryptBackup(plain: ByteArray, password: String): ByteArray {
+        val salt = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
+        val iv = ByteArray(12).also { java.security.SecureRandom().nextBytes(it) }
+        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, cryptKey(password, salt), javax.crypto.spec.GCMParameterSpec(128, iv))
+        return "PCBK1".toByteArray() + salt + iv + cipher.doFinal(plain)
+    }
+
+    private fun decryptBackup(data: ByteArray, password: String): ByteArray {
+        val salt = data.copyOfRange(5, 21)
+        val iv = data.copyOfRange(21, 33)
+        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(javax.crypto.Cipher.DECRYPT_MODE, cryptKey(password, salt), javax.crypto.spec.GCMParameterSpec(128, iv))
+        return cipher.doFinal(data, 33, data.size - 33)
+    }
 
     fun exportBackup(uri: Uri) {
         scope.launch {
@@ -1924,12 +1979,23 @@ class ChatController(
                         put("schedules", j.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(com.pocketcode.Schedule.serializer()), schedules))
                         put("devices", j.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(Device.serializer()), devices))
                         put("globalFiles", files)
+                        put("ocFiles", kotlinx.serialization.json.buildJsonObject {
+                            ocAccDir.listFiles { f -> f.extension == "json" }?.forEach { put("acc/" + it.name, it.readText()) }
+                            if (ocAuthFile.exists()) put("auth.json", ocAuthFile.readText())
+                            if (ocConfigFile.exists()) put("opencode.json", ocConfigFile.readText())
+                        })
+                        put("prefs", kotlinx.serialization.json.buildJsonObject {
+                            backupPrefKeys.forEach { k -> settingsStore.rawGet(k)?.let { put(k, it) } }
+                        })
                     }
-                    app.contentResolver.openOutputStream(uri)!!.use { it.write(j.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), obj).toByteArray()) }
+                    var bytes = j.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), obj).toByteArray()
+                    if (backupPassword.isNotBlank()) bytes = encryptBackup(bytes, backupPassword)
+                    app.contentResolver.openOutputStream(uri)!!.use { it.write(bytes) }
                 }
             }
             backupMessage = r.exceptionOrNull()?.let { "Не удалось сохранить: ${it.message}" }
-                ?: "Копия сохранена. В ней лежат API-ключи и токены, храни файл в надёжном месте."
+                ?: if (backupPassword.isNotBlank()) "Копия сохранена и зашифрована паролем. Не потеряй пароль: без него файл не открыть."
+                else "Копия сохранена БЕЗ шифрования. В ней лежат API-ключи и токены, храни файл в надёжном месте (или задай пароль и сохрани заново)."
         }
     }
 
@@ -1938,7 +2004,11 @@ class ChatController(
         scope.launch {
             val r = withContext(Dispatchers.IO) {
                 runCatching {
-                    val text = app.contentResolver.openInputStream(uri)!!.use { it.readBytes().decodeToString() }
+                    val raw = app.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+                    val text = if (raw.size > 33 && String(raw, 0, 5) == "PCBK1") {
+                        require(backupPassword.isNotBlank()) { "файл защищён паролем: введи пароль выше и выбери файл снова" }
+                        try { decryptBackup(raw, backupPassword).decodeToString() } catch (e: Exception) { throw IllegalStateException("неверный пароль") }
+                    } else raw.decodeToString()
                     val j = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
                     val o = j.parseToJsonElement(text) as kotlinx.serialization.json.JsonObject
                     require((o["app"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "pocketcode-backup") { "это не копия PocketCode" }
@@ -1981,9 +2051,19 @@ class ChatController(
                         f.parentFile?.mkdirs(); f.writeText((v as kotlinx.serialization.json.JsonPrimitive).content)
                     }
                 }
+                (o["ocFiles"] as? kotlinx.serialization.json.JsonObject)?.forEach { (name, v) ->
+                    val t = (v as kotlinx.serialization.json.JsonPrimitive).content
+                    when {
+                        name.startsWith("acc/") -> { ocAccDir.mkdirs(); File(ocAccDir, name.removePrefix("acc/").replace("/", "")).writeText(t) }
+                        name == "auth.json" -> { ocAuthFile.parentFile?.mkdirs(); ocAuthFile.writeText(t) }
+                        name == "opencode.json" -> { ocConfigFile.parentFile?.mkdirs(); ocConfigFile.writeText(t) }
+                    }
+                }
+                (o["prefs"] as? kotlinx.serialization.json.JsonObject)?.forEach { (k, v) -> if (k in backupPrefKeys) settingsStore.rawPut(k, (v as kotlinx.serialization.json.JsonPrimitive).content) }
                 agent = null
                 refreshExtensions()
-            }.onSuccess { backupMessage = "Настройки восстановлены." }
+                refreshOcAccounts(); refreshOcCustom()
+            }.onSuccess { backupMessage = "Настройки восстановлены. Перезапусти приложение, чтобы применились все параметры." }
                 .onFailure { backupMessage = "Не удалось применить: ${it.message}" }
         }
     }
@@ -2456,6 +2536,8 @@ class ChatController(
         SearchResult(hits, "Найдено ${hits.size}${if (hits.size >= 300) "+" else ""} в файлах (просмотрено $files)")
     }
 
+    suspend fun snapshotFileText(id: Long, path: String): String? = snapshots.readFile(currentProject, id, path)
+
     fun readProjectFile(path: String): String? = runCatching { workspace.resolve(path).takeIf { it.isFile }?.readText() }.getOrNull()
     fun writeProjectFile(path: String, text: String) {
         runCatching { workspace.resolve(path).writeText(text) }
@@ -2505,6 +2587,85 @@ class ChatController(
             gitBusy = false
         }
     }
+
+    // ---------- помощь при ошибках, бюджет, отметки, запуск проекта, черновик ----------
+    var ocDailyBudget by mutableIntStateOf(settingsStore.rawGet("ocBudget")?.toIntOrNull() ?: 0)
+        private set
+    fun setOcDailyBudgetValue(v: Int) { ocDailyBudget = v; settingsStore.rawPut("ocBudget", v.toString()) }
+    var ocFreshEach by mutableStateOf(settingsStore.rawGet("ocFresh") == "1")
+        private set
+    fun setOcFreshEachValue(v: Boolean) { ocFreshEach = v; settingsStore.rawPut("ocFresh", if (v) "1" else "0") }
+    var bigInput by mutableStateOf(settingsStore.rawGet("bigInput") == "1")
+        private set
+    fun setBigInputValue(v: Boolean) { bigInput = v; settingsStore.rawPut("bigInput", if (v) "1" else "0") }
+
+    private fun ocRunsToday(): Int {
+        val c = java.util.Calendar.getInstance().apply { set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0) }
+        return ocLongs("ocRuns").count { it >= c.timeInMillis }
+    }
+
+    /** Подсказки действий после ошибки: id действий, которые приложение умеет выполнить. */
+    fun adviceFor(text: String): List<String> {
+        val l = text.lowercase()
+        val out = mutableListOf<String>()
+        val limit = "429" in l || "limit" in l || "лимит" in l || "rate" in l
+        if (limit) {
+            out += "later"
+            if (ocAccounts.size > 1) out += "switch"
+            out += "model"
+            if (ocCtxTokens > 60_000) out += "compact"
+        }
+        if (netErr.containsMatchIn(text) || "сеть" in l) out += "retry"
+        if ("контекст" in l || "context" in l || "too long" in l || "token" in l && "exceed" in l) { out += "compact"; out += "reset" }
+        if (out.isEmpty()) { out += "retry"; out += "reset" }
+        return out.distinct()
+    }
+
+    fun ocSwitchNext(): String {
+        refreshOcAccounts()
+        val list = ocAccounts
+        if (list.size < 2) return "Сохранённых аккаунтов меньше двух."
+        val next = list[(list.indexOf(ocActiveAccount) + 1).mod(list.size)]
+        return doAccountSwitch(next)
+    }
+
+    fun lastUserText(): String? = (items.lastOrNull { it is UiItem.User } as? UiItem.User)?.text
+
+    // отмеченные ответы
+    var stars by mutableStateOf((settingsStore.rawGet("stars") ?: "").split('¦').filter { it.isNotBlank() })
+        private set
+    fun isStarred(text: String) = text.take(600) in stars
+    fun toggleStar(text: String) {
+        val t = text.take(600)
+        stars = if (t in stars) stars - t else (stars + t).takeLast(200)
+        settingsStore.rawPut("stars", stars.joinToString("¦") { it.replace('¦', ' ') })
+    }
+
+    /** Команды запуска, подходящие проекту. */
+    fun detectRunCommands(): List<Pair<String, String>> {
+        val r = workspace.root
+        val out = mutableListOf<Pair<String, String>>()
+        fun has(n: String) = File(r, n).exists()
+        if (has("package.json")) {
+            val scripts = runCatching {
+                ((kotlinx.serialization.json.Json.parseToJsonElement(File(r, "package.json").readText()) as kotlinx.serialization.json.JsonObject)["scripts"] as? kotlinx.serialization.json.JsonObject)?.keys.orEmpty()
+            }.getOrDefault(emptySet())
+            out += "npm install" to "npm install"
+            for (s in listOf("start", "dev", "build", "test")) if (s in scripts) out += "npm run $s" to "npm run $s"
+        }
+        if (has("requirements.txt")) out += "pip install -r requirements.txt" to "pip install -r requirements.txt"
+        for (m in listOf("main.py", "app.py", "bot.py", "run.py")) if (has(m)) { out += "python $m" to "python3 $m"; break }
+        if (has("tests") || has("pytest.ini") || r.listFiles()?.any { it.name.startsWith("test_") && it.extension == "py" } == true) out += "pytest" to "python3 -m pytest -q"
+        if (has("gradlew")) { out += "gradle assembleDebug" to "./gradlew assembleDebug"; out += "gradle test" to "./gradlew test" }
+        if (has("Makefile")) out += "make" to "make"
+        if (has("Cargo.toml")) { out += "cargo run" to "cargo run"; out += "cargo test" to "cargo test" }
+        if (has("go.mod")) { out += "go run ." to "go run ."; out += "go test ./..." to "go test ./..." }
+        return out
+    }
+
+    // черновик сообщения переживает закрытие приложения
+    val draft: String get() = settingsStore.rawGet("draft$tabNo").orEmpty()
+    fun saveDraft(t: String) { settingsStore.rawPut("draft$tabNo", t) }
 
     // ---------- отложенная отправка и статистика по времени суток ----------
     class DelayedTask(val id: String, val at: Long, val project: String, val text: String)
@@ -2576,6 +2737,32 @@ class ChatController(
         val best = stat.filter { it.second >= 3 }.maxByOrNull { it.third.toDouble() / it.second }
         if (best != null) sb.append("\nЛучшее окно по твоим данным: %02d–%02d (время телефона).".format(best.first * 3, best.first * 3 + 3))
         return sb.toString()
+    }
+
+    fun ocBestWindowStart(): Int? {
+        val rows = (settingsStore.rawGet("ocHours") ?: "").split(',').mapNotNull {
+            val p = it.split(':'); val t = p.getOrNull(0)?.toLongOrNull() ?: return@mapNotNull null
+            java.util.Calendar.getInstance().apply { timeInMillis = t }.get(java.util.Calendar.HOUR_OF_DAY) to (p.getOrNull(1) == "1")
+        }
+        if (rows.size < 10) return null
+        return (0 until 8).map { w -> val r = rows.filter { it.first / 3 == w }; Triple(w, r.size, r.count { it.second }) }
+            .filter { it.second >= 3 }.maxByOrNull { it.third.toDouble() / it.second }?.first?.times(3)
+    }
+
+    private fun resetMs(m: String): Long? {
+        val v = Regex("X-RateLimit-Reset\"?\\s*[:=]\\s*\"?(\\d{10,13})", RegexOption.IGNORE_CASE).find(m)?.groupValues?.get(1)?.toLongOrNull() ?: return null
+        return if (v < 100_000_000_000L) v * 1000 else v
+    }
+
+    /** Если сервер сообщил время сброса лимита, ставит повтор последней задачи на это время. */
+    private fun scheduleOnReset(text: String, limited: Boolean) {
+        if (!limited) return
+        val rs = resetMs(text) ?: return
+        val left = rs - System.currentTimeMillis()
+        if (left < 0 || left > 26 * 3_600_000L) return
+        val prompt = lastUserText() ?: return
+        scheduleDelayed(prompt, rs + 60_000)
+        items += UiItem.Notice("Запрос поставлен на повтор после сброса лимита: " + java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(rs + 60_000)) + ". Приложение можно закрыть.")
     }
 
     /** Время сброса лимита из ответа сервера (заголовок X-RateLimit-Reset). */
@@ -3191,6 +3378,15 @@ class ChatController(
             items += UiItem.Error("Режим OpenCode работает только в Linux: включи его и установи в разделе «Проекты», затем «Терминал» → «Установить OpenCode».")
             return
         }
+        if (!isRetry && ocDailyBudget > 0) {
+            val n = ocRunsToday()
+            if (n >= ocDailyBudget) {
+                items += UiItem.Notice("Дневной бюджет запросов OpenCode исчерпан ($n из $ocDailyBudget). Измени его в «Диалоги OpenCode» или отправь позже («Отправить позже» в меню ⋮).")
+                return
+            }
+            if (n + 1 >= ocDailyBudget * 8 / 10) items += UiItem.Notice("Осталось запросов на сегодня: ${ocDailyBudget - n - 1}.")
+        }
+        if (!isRetry && ocFreshEach) { ocSessionId = null; ocSessionTitle = ""; setOcContinue(false) }
         if (currentId == null) currentId = UUID.randomUUID().toString()
         if (!isRetry) { items += UiItem.User(shown, 0); ocRetries = 0; ocSwitchTries = 0; ocFbUsed = false; ocAddLong("ocRuns", System.currentTimeMillis(), 300); accBump(false) }
         val reply = UiItem.Assistant("⏳ OpenCode запускается и думает… (в Linux на телефоне первый ответ может идти минуту)")
@@ -3339,6 +3535,7 @@ class ChatController(
                 } else if (code != 0) {
                     lastRunFailed = true
                     if (freeLimit) { ocAddLong("ocHits", System.currentTimeMillis(), 50); ocStatsVersion++ }
+                    scheduleOnReset(text, limited)
                     items += UiItem.Error(
                         "OpenCode завершился с кодом $code." + resetNote(text) +
                             (if (text.contains("Free usage limit", ignoreCase = true)) "\n\n💡 Это лимит бесплатных моделей на сервере OpenCode, а не ошибка приложения. Размер лимита и время сброса OpenCode не сообщает. Варианты: подождать и попробовать позже, оформить их платный тариф (opencode.ai/go) или переключиться на другого провайдера: Gemini, OpenRouter :free, Groq, NVIDIA (☰ → Настройки → Шаблоны провайдеров), выключив режим OpenCode." else "") +
@@ -3366,7 +3563,7 @@ class ChatController(
                         val next = if (!lastRunFailed && queue.isNotEmpty()) queue.removeAt(0).also { saveQueue() } else null
                         if (ocCompactSoon && next == null) { ocCompactSoon = false; compactOcSession() }
                         else if (next != null) send(next)
-                        else if (!appVisible) Notifier.alert(app, "OpenCode закончил", (items.lastOrNull { it is UiItem.Assistant } as? UiItem.Assistant)?.text?.takeLast(200) ?: "Готово")
+                        else if (!appVisible) Notifier.alert(app, "OpenCode закончил", (items.lastOrNull { it is UiItem.Assistant } as? UiItem.Assistant)?.text?.takeLast(200) ?: "Готово", continueTab = tabNo)
                     }
                 }
             }
@@ -3429,7 +3626,7 @@ class ChatController(
                         send(next)
                     } else if (!appVisible) {
                         val last = (items.lastOrNull { it is UiItem.Assistant } as? UiItem.Assistant)?.text
-                        Notifier.alert(app, "Агент закончил", last?.take(200) ?: "Задача выполнена")
+                        Notifier.alert(app, "Агент закончил", last?.take(200) ?: "Задача выполнена", continueTab = tabNo)
                     }
                 }
             }

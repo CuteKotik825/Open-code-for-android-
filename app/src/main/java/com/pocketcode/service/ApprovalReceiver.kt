@@ -11,6 +11,11 @@ class ApprovalReceiver : BroadcastReceiver() {
         val app = context.applicationContext as? PocketCodeApp ?: return
         val tab = intent.getIntExtra("tab", 0)
         val allow = intent.getBooleanExtra("allow", false)
+        if (intent.getBooleanExtra("cont", false)) {
+            app.tabs.firstOrNull { it.tabNo == tab }?.send("Продолжай с того места, где остановился.")
+            Notifier.clearAlert(context)
+            return
+        }
         app.tabs.firstOrNull { it.tabNo == tab }?.answerApproval(allow)
         Notifier.clearAlert(context)
     }
