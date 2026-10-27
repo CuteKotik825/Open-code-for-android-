@@ -143,6 +143,12 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                         value = fb, onValueChange = { fb = it; vm.setOcFallbackValue(it) }, singleLine = true,
                         label = { Text("Запасная модель при лимите (провайдер/модель)") }, modifier = Modifier.fillMaxWidth(),
                     )
+                    Text("Повтор после 429 (слишком частые запросы) через:", style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(1, 5, 15, 30).forEach { m ->
+                            androidx.compose.material3.FilterChip(selected = vm.ocRateRetryMin == m, onClick = { vm.setOcRateRetryValue(m) }, label = { Text("$m мин") })
+                        }
+                    }
                     Text("Автосжатие беседы при контексте больше:", style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(0 to "выкл", 80_000 to "80к", 120_000 to "120к", 200_000 to "200к").forEach { (v, l) ->

@@ -2674,6 +2674,11 @@ class ChatController(
     fun setOcFallbackValue(v: String) { ocFallbackModel = v.trim(); settingsStore.rawPut("ocFallback", v.trim()) }
     private var ocFbUsed = false
 
+    /** Пауза перед повтором при 429 (слишком частые запросы), минуты. */
+    var ocRateRetryMin by mutableIntStateOf(settingsStore.rawGet("ocRateRetryMin")?.toIntOrNull() ?: 15)
+        private set
+    fun setOcRateRetryValue(v: Int) { ocRateRetryMin = v; settingsStore.rawPut("ocRateRetryMin", v.toString()) }
+
     var ocAutoCompact by mutableIntStateOf(settingsStore.rawGet("ocAutoCompact")?.toIntOrNull() ?: 0)
         private set
     fun setOcAutoCompactValue(v: Int) { ocAutoCompact = v; settingsStore.rawPut("ocAutoCompact", v.toString()) }
@@ -3247,8 +3252,8 @@ class ChatController(
                 } else if (code != 0 && (netErr.containsMatchIn(text) || rate) && ocRetries < 4) {
                     ocRetries++
                     retryScheduled = true
-                    ocRetryDelay = if (rate) 45_000L else 15_000L
-                    items += UiItem.Notice((if (rate) "Сервер просит подождать (429, слишком частые запросы)." else "Сеть недоступна (${netErr.find(text)?.value}).") + " Повтор через ${ocRetryDelay / 1000} с, попытка $ocRetries из 4.")
+                    ocRetryDelay = if (rate) ocRateRetryMin * 60_000L else 15_000L
+                    items += UiItem.Notice((if (rate) "Сервер просит подождать (429, слишком частые запросы)." else "Сеть недоступна (${netErr.find(text)?.value}).") + " Повтор через ${if (ocRetryDelay >= 60_000) "${ocRetryDelay / 60_000} мин" else "${ocRetryDelay / 1000} с"}, попытка $ocRetries из 4.")
                 } else if (code != 0) {
                     lastRunFailed = true
                     if (freeLimit) { ocAddLong("ocHits", System.currentTimeMillis(), 50); ocStatsVersion++ }
