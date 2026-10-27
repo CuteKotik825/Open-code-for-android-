@@ -2505,6 +2505,86 @@ class ChatController(
         }
     }
 
+    // ---------- отложенная отправка и статистика по времени суток ----------
+    class DelayedTask(val id: String, val at: Long, val project: String, val text: String)
+
+    var delayedTasks by mutableStateOf(loadDelayed())
+        private set
+
+    private fun loadDelayed(): List<DelayedTask> = (settingsStore.rawGet("delayed") ?: "").split('¦').filter { it.isNotBlank() }.mapNotNull {
+        val p = it.split('\u001f')
+        if (p.size < 4) null else DelayedTask(p[0], p[1].toLongOrNull() ?: 0, p[2], p[3])
+    }
+
+    private fun saveDelayed(l: List<DelayedTask>) {
+        delayedTasks = l
+        settingsStore.rawPut("delayed", l.joinToString("¦") { "${it.id}\u001f${it.at}\u001f${it.project}\u001f${it.text.replace('¦', ' ')}" })
+    }
+
+    fun scheduleDelayed(text: String, atMs: Long) {
+        if (text.isBlank()) return
+        val id = System.currentTimeMillis().toString()
+        saveDelayed(delayedTasks + DelayedTask(id, atMs, currentProject, text.trim()))
+        DelayedScheduler.schedule(app, id, atMs)
+    }
+
+    fun cancelDelayed(id: String) {
+        DelayedScheduler.cancel(app, id)
+        saveDelayed(delayedTasks.filter { it.id != id })
+    }
+
+    /** Запускает отложенную задачу (вызывается из фоновой работы). null — нечего запускать или занято. */
+    fun runDelayed(id: String): kotlinx.coroutines.Job? {
+        val t = delayedTasks.firstOrNull { it.id == id } ?: return null
+        if (running) {
+            // занято: пробуем ещё раз через 10 минут
+            DelayedScheduler.schedule(app, id, System.currentTimeMillis() + 10 * 60_000)
+            return null
+        }
+        saveDelayed(delayedTasks.filter { it.id != id })
+        if (!projectDir(t.project).isDirectory) return null
+        return scope.launch {
+            val answer = runCatching { runRemoteTask(t.project, t.text) }.getOrElse { "Ошибка: ${it.message}" }
+            Notifier.alert(app, "Отложенная задача выполнена", answer.take(200))
+        }
+    }
+
+    /** Доля неудач (лимит, 429, ошибка сервера) запросов OpenCode по окнам времени суток; сеть не считается. */
+    private fun ocHourAdd(ok: Boolean) {
+        val old = (settingsStore.rawGet("ocHours") ?: "").split(',').filter { it.isNotBlank() }
+        settingsStore.rawPut("ocHours", (old + "${System.currentTimeMillis()}:${if (ok) 1 else 0}").takeLast(800).joinToString(","))
+    }
+
+    fun ocBestHoursText(): String {
+        ocStatsVersion
+        val rows = (settingsStore.rawGet("ocHours") ?: "").split(',').mapNotNull {
+            val p = it.split(':'); val t = p.getOrNull(0)?.toLongOrNull() ?: return@mapNotNull null
+            val h = java.util.Calendar.getInstance().apply { timeInMillis = t }.get(java.util.Calendar.HOUR_OF_DAY)
+            h to (p.getOrNull(1) == "1")
+        }
+        if (rows.size < 10) return "Пока мало данных (${rows.size} запросов). Нужно хотя бы 10–20 запросов в разное время суток, тогда здесь появится сравнение по часам."
+        val sb = StringBuilder()
+        val stat = (0 until 8).map { w ->
+            val r = rows.filter { it.first / 3 == w }
+            Triple(w, r.size, r.count { it.second })
+        }
+        for ((w, n, ok) in stat) {
+            val label = "%02d–%02d".format(w * 3, w * 3 + 3)
+            sb.append(label).append(": ").append(if (n == 0) "нет запросов" else "успешно $ok из $n (${ok * 100 / n}%)").append('\n')
+        }
+        val best = stat.filter { it.second >= 3 }.maxByOrNull { it.third.toDouble() / it.second }
+        if (best != null) sb.append("\nЛучшее окно по твоим данным: %02d–%02d (время телефона).".format(best.first * 3, best.first * 3 + 3))
+        return sb.toString()
+    }
+
+    /** Время сброса лимита из ответа сервера (заголовок X-RateLimit-Reset). */
+    private fun resetNote(m: String): String {
+        val v = Regex("X-RateLimit-Reset\"?\\s*[:=]\\s*\"?(\\d{10,13})", RegexOption.IGNORE_CASE).find(m)?.groupValues?.get(1)?.toLongOrNull() ?: return ""
+        val ms = if (v < 100_000_000_000L) v * 1000 else v
+        if (ms < System.currentTimeMillis() - 60_000) return ""
+        return "\nЛимит сбросится примерно " + java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(ms)) + " (время телефона)."
+    }
+
     // ---------- синхронизация проектов и удалённое управление (через приватный репозиторий GitHub) ----------
     private val syncMgr = SyncManager(app) { projectDir(it) }
     var syncRepo by mutableStateOf(settingsStore.rawGet("syncRepo").orEmpty())
@@ -3226,6 +3306,7 @@ class ChatController(
                 }
                 if (code != 0) ocCompact = false
                 if (code == 0 && ocAutoCompact > 0 && ocCtxTokens > ocAutoCompact && !ocCompact) ocCompactSoon = true
+                if (code == 0 || !netErr.containsMatchIn(text)) ocHourAdd(code == 0)
                 ocLogAdd(when { code == 0 -> "ок"; freeLimit -> "лимит"; rate -> "429"; netErr.containsMatchIn(text) -> "сеть"; else -> "ошибка" }, code, runStart)
                 if (code != 0 && limited) accBump(true)
                 if (code != 0 && ocAutoSwitch && limited && (freeLimit || ocRetries >= 4)) {
@@ -3258,7 +3339,7 @@ class ChatController(
                     lastRunFailed = true
                     if (freeLimit) { ocAddLong("ocHits", System.currentTimeMillis(), 50); ocStatsVersion++ }
                     items += UiItem.Error(
-                        "OpenCode завершился с кодом $code." +
+                        "OpenCode завершился с кодом $code." + resetNote(text) +
                             (if (text.contains("Free usage limit", ignoreCase = true)) "\n\n💡 Это лимит бесплатных моделей на сервере OpenCode, а не ошибка приложения. Размер лимита и время сброса OpenCode не сообщает. Варианты: подождать и попробовать позже, оформить их платный тариф (opencode.ai/go) или переключиться на другого провайдера: Gemini, OpenRouter :free, Groq, NVIDIA (☰ → Настройки → Шаблоны провайдеров), выключив режим OpenCode." else "") +
                             (if (text.isBlank() || text.contains("not found")) "\n\n💡 Похоже, OpenCode не установлен: ☰ → Терминал → «Установить OpenCode». Для его бесплатных моделей может понадобиться вход: ☰ → Диалоги OpenCode → «Ключ OpenCode»." else ""),
                     )
@@ -3500,7 +3581,7 @@ class ChatController(
                 "\n\n💡 Бесплатный тариф OpenCode работает только внутри самого приложения OpenCode, по API его не отдают. Возьми ключ другого провайдера: в настройках → «Шаблоны провайдеров» есть бесплатные варианты (Gemini, OpenRouter с моделями :free, Groq, NVIDIA)."
             l.startsWith("http 404") -> "\n\n💡 404: проверь базовый URL (для OpenAI-совместимых обычно заканчивается на /v1) и имя модели."
             l.startsWith("http 401") || "invalid api key" in l -> "\n\n💡 Ключ не принят: проверь, что он вставлен целиком и относится к этому провайдеру."
-            l.startsWith("http 429") -> "\n\n💡 Лимит запросов или квоты. Подожди или настрой резервный профиль."
+            l.startsWith("http 429") -> "\n\n💡 Лимит запросов или квоты. Подожди или настрой резервный профиль." + resetNote(m)
             else -> ""
         }
     }

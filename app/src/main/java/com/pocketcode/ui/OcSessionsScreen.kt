@@ -200,6 +200,13 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
             }
             androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Когда лучше работать", style = MaterialTheme.typography.titleSmall)
+                    Text(vm.ocBestHoursText(), style = MaterialTheme.typography.bodySmall)
+                    Text("Считается по твоим запросам к OpenCode: какая доля прошла без лимита и ошибок сервера в разное время суток. Сетевые сбои не учитываются. Чем больше запросов, тем точнее.", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         Text("Журнал запросов", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                         TextButton(onClick = { showLog = !showLog }) { Text(if (showLog) "Скрыть" else "Показать") }

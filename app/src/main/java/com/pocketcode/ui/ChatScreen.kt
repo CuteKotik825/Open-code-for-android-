@@ -164,6 +164,7 @@ fun ChatScreen(
                             if (vm.openCodeMode) DropdownMenuItem(text = { Text("Сбросить, выбрав с какого сообщения") }, onClick = { moreMenu = false; pickFrom = vm.items.indexOfLast { it is UiItem.User }.coerceAtLeast(0); dlg = "resetpick" })
                             if (vm.openCodeMode) DropdownMenuItem(text = { Text("Сбросить сессию и чат полностью") }, onClick = { moreMenu = false; vm.resetSessionAndChat(false) })
                             if (vm.openCodeMode) DropdownMenuItem(text = { Text("Сжать беседу") }, onClick = { moreMenu = false; vm.compactOcSession() })
+                            DropdownMenuItem(text = { Text("Отправить позже") }, onClick = { moreMenu = false; dlg = "later" })
                             DropdownMenuItem(text = { Text("Поиск по чату") }, onClick = { moreMenu = false; searchQ = ""; dlg = "search" })
                             DropdownMenuItem(text = { Text("Заметки проекта") }, onClick = { moreMenu = false; notesDraft = vm.notesText(); dlg = "notes" })
                             DropdownMenuItem(text = { Text("Мои шаблоны") }, onClick = { moreMenu = false; newTpl = ""; dlg = "tpl" })
@@ -540,6 +541,44 @@ fun ChatScreen(
         )
     }
 
+    if (dlg == "later") {
+        fun at(hour: Int): Long {
+            val c = java.util.Calendar.getInstance().apply { set(java.util.Calendar.HOUR_OF_DAY, hour); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0) }
+            if (c.timeInMillis < System.currentTimeMillis() + 60_000) c.add(java.util.Calendar.DAY_OF_YEAR, 1)
+            return c.timeInMillis
+        }
+        val now = System.currentTimeMillis()
+        val fmtT = java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault())
+        val options = listOf(
+            "Через 1 час" to now + 3_600_000L, "Через 3 часа" to now + 3 * 3_600_000L,
+            "В 03:00" to at(3), "В 06:00" to at(6), "В 09:00" to at(9),
+        )
+        AlertDialog(
+            onDismissRequest = { dlg = "" },
+            title = { Text("Отправить позже") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(if (input.isBlank()) "Сначала напиши задачу в поле ввода, потом выбери время." else "Задача: " + input.take(80), style = MaterialTheme.typography.bodySmall)
+                    Text("Запустится в выбранное время, даже если приложение закрыто, без подтверждений (опасные действия отклоняются). По окончании придёт уведомление. Подходящее время смотри в «Диалоги OpenCode» → «Когда лучше работать».", style = MaterialTheme.typography.labelSmall)
+                    options.forEach { (label, t) ->
+                        TextButton(onClick = { vm.scheduleDelayed(input, t); input = ""; dlg = "" }, enabled = input.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+                            Text("$label (${fmtT.format(java.util.Date(t))})", modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                    if (vm.delayedTasks.isNotEmpty()) {
+                        Text("Ждут запуска:", style = MaterialTheme.typography.titleSmall)
+                        vm.delayedTasks.forEach { d ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(fmtT.format(java.util.Date(d.at)) + " · " + d.project + " · " + d.text.take(40), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = { vm.cancelDelayed(d.id) }) { Text("✕") }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { dlg = "" }) { Text("Закрыть") } },
+        )
+    }
     if (rewindAt >= 0) {
         AlertDialog(
             onDismissRequest = { rewindAt = -1 },
