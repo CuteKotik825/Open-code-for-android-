@@ -50,6 +50,9 @@ fun SearchScreen(vm: ChatController, onBack: () -> Unit, onPicked: () -> Unit) {
                 FilterChip(selected = regex, onClick = { regex = !regex }, label = { Text("Регулярное выражение") })
                 FilterChip(selected = matchCase, onClick = { matchCase = !matchCase }, label = { Text("Учитывать регистр") })
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                androidx.compose.material3.AssistChip(onClick = { query = "TODO|FIXME|XXX"; regex = true; matchCase = true }, label = { Text("TODO / FIXME") })
+            }
             Button(onClick = {
                 busy = true; msg = "Ищу…"
                 scope.launch {
@@ -63,11 +66,14 @@ fun SearchScreen(vm: ChatController, onBack: () -> Unit, onPicked: () -> Unit) {
             Text("Нажми на результат: ссылка на файл попадёт в поле ввода чата.", style = MaterialTheme.typography.labelSmall)
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(results) { h ->
-                    TextButton(onClick = { vm.incomingText = "@${h.path} (строка ${h.line})"; onPicked() }, modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.fillMaxWidth()) {
-                            Text("${h.path}:${h.line}", style = MaterialTheme.typography.labelMedium)
-                            Text(h.text.trim().take(140), fontFamily = FontFamily.Monospace, fontSize = 11.sp, maxLines = 2)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { vm.incomingText = "@${h.path} (строка ${h.line})"; onPicked() }, modifier = Modifier.weight(1f)) {
+                            Column(Modifier.fillMaxWidth()) {
+                                Text("${h.path}:${h.line}", style = MaterialTheme.typography.labelMedium)
+                                Text(h.text.trim().take(140), fontFamily = FontFamily.Monospace, fontSize = 11.sp, maxLines = 2)
+                            }
                         }
+                        TextButton(onClick = { vm.incomingText = "Исправь в @${h.path} (строка ${h.line}): ${h.text.trim().take(200)}"; onPicked() }) { Text("Агенту") }
                     }
                 }
             }

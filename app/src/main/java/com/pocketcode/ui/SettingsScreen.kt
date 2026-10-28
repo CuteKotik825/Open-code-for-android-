@@ -492,6 +492,13 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
 
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Крупный ввод (удобнее одной рукой)")
+                    Text("Поле ввода выше, шрифт в нём крупнее.", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = vm.bigInput, onCheckedChange = { vm.setBigInputValue(it) })
+            }
             Text("Тема", style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("system" to "Как в системе", "light" to "Светлая", "dark" to "Тёмная").forEach { (v, l) ->

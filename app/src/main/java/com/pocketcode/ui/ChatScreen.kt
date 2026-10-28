@@ -91,7 +91,7 @@ fun ChatScreen(
     var modelDraft by remember { mutableStateOf("") }
     var newProjectName by remember { mutableStateOf("") }
     var profileMenu by remember { mutableStateOf(false) }
-    var input by remember { mutableStateOf("") }
+    var input by remember { mutableStateOf(vm.draft) }
     val atTok = Regex("(?:^|\\s)@([\\w./\\-]*)$").find(input)
     var showChanges by remember { mutableStateOf(false) }
     var showTodos by remember { mutableStateOf(false) }
@@ -104,6 +104,11 @@ fun ChatScreen(
     ) { uri -> if (uri != null) vm.attachImage(uri) }
     val listState = rememberLazyListState()
     val ctx = androidx.compose.ui.platform.LocalContext.current
+    val clip = androidx.compose.ui.platform.LocalClipboardManager.current
+    var adviceText by remember { mutableStateOf("") }
+    var tplFill by remember { mutableStateOf<String?>(null) }
+    var fillVals by remember { mutableStateOf(mapOf<String, String>()) }
+    LaunchedEffect(input) { kotlinx.coroutines.delay(400); vm.saveDraft(input) }
     val voice = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
     ) { res ->
@@ -164,6 +169,7 @@ fun ChatScreen(
                             if (vm.openCodeMode) DropdownMenuItem(text = { Text("Сбросить, выбрав с какого сообщения") }, onClick = { moreMenu = false; pickFrom = vm.items.indexOfLast { it is UiItem.User }.coerceAtLeast(0); dlg = "resetpick" })
                             if (vm.openCodeMode) DropdownMenuItem(text = { Text("Сбросить сессию и чат полностью") }, onClick = { moreMenu = false; vm.resetSessionAndChat(false) })
                             if (vm.openCodeMode) DropdownMenuItem(text = { Text("Сжать беседу") }, onClick = { moreMenu = false; vm.compactOcSession() })
+                            DropdownMenuItem(text = { Text("Отмеченные ответы (${vm.stars.size})") }, onClick = { moreMenu = false; dlg = "stars" })
                             DropdownMenuItem(text = { Text("Отправить позже") }, onClick = { moreMenu = false; dlg = "later" })
                             DropdownMenuItem(text = { Text("Поиск по чату") }, onClick = { moreMenu = false; searchQ = ""; dlg = "search" })
                             DropdownMenuItem(text = { Text("Заметки проекта") }, onClick = { moreMenu = false; notesDraft = vm.notesText(); dlg = "notes" })
@@ -232,6 +238,22 @@ fun ChatScreen(
                         itemsIndexed(vm.items, key = { i, _ -> i }) { i, item ->
                             Column {
                                 ItemView(item)
+                                if (item is UiItem.Assistant && !item.text.startsWith("⏳") && !(vm.running && i == vm.items.lastIndex)) {
+                                    Row {
+                                        val star = vm.isStarred(item.text)
+                                        TextButton(onClick = { vm.toggleStar(item.text) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) { Text(if (star) "★" else "☆", style = MaterialTheme.typography.labelMedium) }
+                                        TextButton(onClick = { clip.setText(androidx.compose.ui.text.AnnotatedString(item.text)) }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) { Text("Копировать", style = MaterialTheme.typography.labelSmall) }
+                                        TextButton(onClick = {
+                                            val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, item.text) }
+                                            ctx.startActivity(android.content.Intent.createChooser(send, "Поделиться").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                                        }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) { Text("Поделиться", style = MaterialTheme.typography.labelSmall) }
+                                    }
+                                }
+                                if (item is UiItem.Error && !vm.running) {
+                                    TextButton(onClick = { adviceText = item.text; dlg = "advice" }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                                        Text("Что делать?", style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
                                 if (item is UiItem.User && !vm.running) {
                                     TextButton(onClick = { rewindAt = i }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
                                         Text("↩ вернуться к этому месту", style = MaterialTheme.typography.labelSmall)
@@ -274,17 +296,18 @@ fun ChatScreen(
                 }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                androidx.compose.material3.FilterChip(
-                    selected = vm.planMode,
-                    onClick = { vm.planMode = !vm.planMode },
-                    label = { Text("План") },
-                )
-                androidx.compose.material3.FilterChip(
-                    selected = vm.openCodeMode,
-                    onClick = { vm.openCodeMode = !vm.openCodeMode },
-                    label = { Text("OpenCode") },
-                    modifier = Modifier.padding(start = 6.dp),
-                )
+                androidx.compose.material3.SingleChoiceSegmentedButtonRow(Modifier.padding(end = 6.dp)) {
+                    val modes = listOf("Обычный", "OpenCode", "План")
+                    val cur = if (vm.openCodeMode) 1 else if (vm.planMode) 2 else 0
+                    modes.forEachIndexed { i, label ->
+                        androidx.compose.material3.SegmentedButton(
+                            selected = cur == i,
+                            onClick = { vm.openCodeMode = i == 1; vm.planMode = i == 2 },
+                            shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, modes.size),
+                            label = { Text(label, maxLines = 1) },
+                        )
+                    }
+                }
                 if (vm.todos.isNotEmpty()) {
                     val done = vm.todos.count { it.startsWith("[x]", true) }
                     TextButton(onClick = { showTodos = !showTodos }) { Text("Задачи $done/${vm.todos.size}") }
@@ -438,7 +461,8 @@ fun ChatScreen(
                     androidx.compose.material3.TextField(
                         value = input,
                         onValueChange = { input = it },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).heightIn(min = if (vm.bigInput) 72.dp else 0.dp),
+                        textStyle = androidx.compose.material3.LocalTextStyle.current.copy(fontSize = if (vm.bigInput) 18.sp else 16.sp),
                         placeholder = { Text("Опиши задачу…") },
                         maxLines = 6,
                         colors = androidx.compose.material3.TextFieldDefaults.colors(
@@ -552,7 +576,7 @@ fun ChatScreen(
         val options = listOf(
             "Через 1 час" to now + 3_600_000L, "Через 3 часа" to now + 3 * 3_600_000L,
             "В 03:00" to at(3), "В 06:00" to at(6), "В 09:00" to at(9),
-        )
+        ) + (vm.ocBestWindowStart()?.let { listOf("В лучшее окно (%02d:00, по твоей статистике)".format(it) to at(it)) } ?: emptyList())
         AlertDialog(
             onDismissRequest = { dlg = "" },
             title = { Text("Отправить позже") },
@@ -577,6 +601,87 @@ fun ChatScreen(
                 }
             },
             confirmButton = { TextButton(onClick = { dlg = "" }) { Text("Закрыть") } },
+        )
+    }
+    if (dlg == "advice") {
+        val acts = vm.adviceFor(adviceText)
+        val prompt = vm.lastUserText()
+        AlertDialog(
+            onDismissRequest = { dlg = "" },
+            title = { Text("Что делать") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    acts.forEach { a ->
+                        val (label, hint) = when (a) {
+                            "later" -> "Повторить через 15 минут" to "Если это лимит запросов, он обычно проходит через несколько минут."
+                            "switch" -> "Переключить аккаунт OpenCode" to "Следующий сохранённый аккаунт и повтор запроса."
+                            "model" -> "Выбрать другую модель" to "Лимиты у каждой модели свои."
+                            "compact" -> "Сжать беседу" to "Огромный контекст быстрее упирается в лимиты."
+                            "reset" -> "Сбросить сессию (оставить последнее)" to "Начать заново с новым id."
+                            else -> "Повторить сейчас" to "Если причина была временной."
+                        }
+                        TextButton(onClick = {
+                            dlg = ""
+                            when (a) {
+                                "later" -> prompt?.let { vm.scheduleDelayed(it, System.currentTimeMillis() + 15 * 60_000L) }
+                                "switch" -> { vm.ocSwitchNext(); vm.retryLast() }
+                                "model" -> { modelDraft = vm.ocModel; vm.loadOcModels(); dlg = "ocmodel" }
+                                "compact" -> vm.compactOcSession()
+                                "reset" -> vm.resetSessionAndChat(true)
+                                else -> vm.retryLast()
+                            }
+                        }, modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.fillMaxWidth()) { Text(label); Text(hint, style = MaterialTheme.typography.labelSmall) }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { dlg = "" }) { Text("Закрыть") } },
+        )
+    }
+    if (dlg == "stars") {
+        AlertDialog(
+            onDismissRequest = { dlg = "" },
+            title = { Text("Отмеченные ответы") },
+            text = {
+                Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                    if (vm.stars.isEmpty()) Text("Нажми ☆ под ответом, чтобы отметить его.", style = MaterialTheme.typography.bodySmall)
+                    vm.stars.reversed().forEach { t ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { clip.setText(androidx.compose.ui.text.AnnotatedString(t)); dlg = "" }, modifier = Modifier.weight(1f)) {
+                                Text(t.replace("\n", " ").take(160), maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall)
+                            }
+                            TextButton(onClick = { vm.toggleStar(t) }) { Text("✕") }
+                        }
+                    }
+                    if (vm.stars.isNotEmpty()) Text("Нажми на текст, чтобы скопировать.", style = MaterialTheme.typography.labelSmall)
+                }
+            },
+            confirmButton = { TextButton(onClick = { dlg = "" }) { Text("Закрыть") } },
+        )
+    }
+    if (dlg == "fill") {
+        val tpl = tplFill.orEmpty()
+        val names = Regex("\\{([^}]+)}").findAll(tpl).map { it.groupValues[1] }.distinct().toList()
+        AlertDialog(
+            onDismissRequest = { dlg = "" },
+            title = { Text("Подставь значения") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    names.forEach { n ->
+                        OutlinedTextField(value = fillVals[n].orEmpty(), onValueChange = { fillVals = fillVals + (n to it) }, singleLine = true, label = { Text(n) }, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    var out = tpl
+                    names.forEach { n -> out = out.replace("{$n}", fillVals[n].orEmpty()) }
+                    input = if (input.isBlank()) out else input.trimEnd() + "\n" + out
+                    dlg = ""
+                }) { Text("Вставить") }
+            },
+            dismissButton = { TextButton(onClick = { dlg = "" }) { Text("Отмена") } },
         )
     }
     if (rewindAt >= 0) {
@@ -665,7 +770,10 @@ fun ChatScreen(
                     if (vm.promptTemplates.isEmpty()) Text("Пока пусто. Добавь фразу, которую часто пишешь.", style = MaterialTheme.typography.bodySmall)
                     vm.promptTemplates.forEachIndexed { i, t ->
                         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            TextButton(onClick = { input = if (input.isBlank()) t else input.trimEnd() + "\n" + t; dlg = "" }, modifier = Modifier.weight(1f)) {
+                            TextButton(onClick = {
+                                if (Regex("\\{[^}]+}").containsMatchIn(t)) { tplFill = t; fillVals = emptyMap(); dlg = "fill" }
+                                else { input = if (input.isBlank()) t else input.trimEnd() + "\n" + t; dlg = "" }
+                            }, modifier = Modifier.weight(1f)) {
                                 Text(t, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
                             }
                             TextButton(onClick = { vm.removeTemplate(i) }) { Text("✕") }

@@ -149,6 +149,16 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                             androidx.compose.material3.FilterChip(selected = vm.ocRateRetryMin == m, onClick = { vm.setOcRateRetryValue(m) }, label = { Text("$m мин") })
                         }
                     }
+                    Text("Бюджет запросов OpenCode в день (приложение остановит и предупредит заранее):", style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(0 to "выкл", 20 to "20", 50 to "50", 100 to "100").forEach { (v, l) ->
+                            androidx.compose.material3.FilterChip(selected = vm.ocDailyBudget == v, onClick = { vm.setOcDailyBudgetValue(v) }, label = { Text(l) })
+                        }
+                    }
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Text("Каждый новый запрос начинает новую беседу (без длинной истории, меньше риск лимитов)", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                        androidx.compose.material3.Switch(checked = vm.ocFreshEach, onCheckedChange = { vm.setOcFreshEachValue(it) })
+                    }
                     Text("Автосжатие беседы при контексте больше:", style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(0 to "выкл", 80_000 to "80к", 120_000 to "120к", 200_000 to "200к").forEach { (v, l) ->

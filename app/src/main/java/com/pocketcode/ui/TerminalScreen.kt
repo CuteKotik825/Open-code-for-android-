@@ -87,6 +87,15 @@ fun TerminalScreen(vm: ChatController, onBack: () -> Unit) {
                     }
                 }
             }
+            if (!vm.termBusy) {
+                val runs = remember(vm.currentProject) { vm.detectRunCommands() }
+                if (runs.isNotEmpty()) {
+                    Text("Запуск проекта:", style = MaterialTheme.typography.labelSmall)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        runs.forEach { (label, command) -> AssistChip(onClick = { vm.termRun(command, 900, false) }, label = { Text("▶ $label") }) }
+                    }
+                }
+            }
             if (vm.termBusy) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     val enter = if (tty) "\r" else "\n"

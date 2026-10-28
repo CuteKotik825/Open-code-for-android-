@@ -171,6 +171,13 @@ fun DiagScreen(vm: ChatController, onBack: () -> Unit, onExport: () -> Unit, onI
                     "Файл содержит секреты, не отправляй его никому.",
                 style = MaterialTheme.typography.bodySmall,
             )
+            androidx.compose.material3.OutlinedTextField(
+                value = vm.backupPassword, onValueChange = { vm.backupPassword = it }, singleLine = true,
+                label = { Text("Пароль для шифрования (необязательно)") },
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text("С паролем файл шифруется (AES-256). Без пароля при восстановлении не откроется, не забудь его.", style = MaterialTheme.typography.labelSmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onExport) { Text("Сохранить копию") }
                 OutlinedButton(onClick = onImport) { Text("Восстановить") }
