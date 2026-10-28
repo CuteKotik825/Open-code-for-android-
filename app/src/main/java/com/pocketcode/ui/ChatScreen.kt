@@ -50,6 +50,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -296,14 +299,14 @@ fun ChatScreen(
                 }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                androidx.compose.material3.SingleChoiceSegmentedButtonRow(Modifier.padding(end = 6.dp)) {
+                SingleChoiceSegmentedButtonRow(Modifier.padding(end = 6.dp)) {
                     val modes = listOf("Обычный", "OpenCode", "План")
                     val cur = if (vm.openCodeMode) 1 else if (vm.planMode) 2 else 0
                     modes.forEachIndexed { i, label ->
-                        androidx.compose.material3.SegmentedButton(
+                        SegmentedButton(
                             selected = cur == i,
                             onClick = { vm.openCodeMode = i == 1; vm.planMode = i == 2 },
-                            shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, modes.size),
+                            shape = SegmentedButtonDefaults.itemShape(i, modes.size),
                             label = { Text(label, maxLines = 1) },
                         )
                     }
