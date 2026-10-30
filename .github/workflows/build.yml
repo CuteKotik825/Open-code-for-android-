@@ -55,4 +55,4 @@ jobs:
             --notes "$(git log -1 --pretty=%s)" \
             --target "${{ github.sha }}"
           # оставляем только 5 последних релизов
-          gh release list --limit 100 --json tagName -q '.[5:][].tagName' | xargs -r -I{} gh release delete {} --cleanup-tag -y
+          gh release list --limit 100 --json tagName -q '.[10:][].tagName' | xargs -r -I{} gh release delete {} --cleanup-tag -y
