@@ -29,6 +29,10 @@ class LinuxEnv(private val context: Context) {
     @Volatile
     var noSeccomp = false
 
+    /** true — без --link2symlink (на части телефонов эта опция ломает запуск). */
+    @Volatile
+    var noLink = false
+
     private val prootBin get() = File(nativeDir, "libproot.so")
 
     fun isSupported(): Boolean = prootBin.exists() && alpineArch() != null
@@ -57,7 +61,7 @@ class LinuxEnv(private val context: Context) {
         File(rootfs, "root").mkdirs()
         val args = mutableListOf(
             prootBin.absolutePath,
-            "--kill-on-exit", "--link2symlink", "-0",
+            "--kill-on-exit", *(if (noLink) emptyArray() else arrayOf("--link2symlink")), "-0",
             "-r", rootfs.absolutePath,
             "-b", "/dev", "-b", "/proc",
             "-b", "${root.absolutePath}:/work",
@@ -141,19 +145,21 @@ class LinuxEnv(private val context: Context) {
         File(rootfs, "root").mkdirs()
 
         onProgress("Проверяю запуск…")
-        noSeccomp = false
-        var out = probe()
-        if (!out.contains("pocketcode-ok")) {
-            noSeccomp = true
-            val retry = probe()
-            if (retry.contains("pocketcode-ok")) out = retry
-            else {
-                noSeccomp = false
-                error("proot не запустился на этом телефоне:\n" + out.take(1500))
-            }
+        val tries = listOf(false to false, true to false, true to true, false to true)
+        val log = StringBuilder()
+        var worked = false
+        for ((ns, nl) in tries) {
+            noSeccomp = ns; noLink = nl
+            val o = probe()
+            if (o.contains("pocketcode-ok")) { worked = true; break }
+            log.append("— без seccomp=$ns, без link2symlink=$nl:\n").append(o.take(700)).append("\n")
+        }
+        if (!worked) {
+            noSeccomp = false; noLink = false
+            error("proot не запустился на этом телефоне (проверено 4 режима):\n" + log.toString().take(2800))
         }
         marker.writeText("ok")
-        "Готово" + if (noSeccomp) " (режим без seccomp)" else ""
+        "Готово" + (if (noSeccomp) " (без seccomp)" else "") + (if (noLink) " (без link2symlink)" else "")
     }
 
     private fun probe(): String {

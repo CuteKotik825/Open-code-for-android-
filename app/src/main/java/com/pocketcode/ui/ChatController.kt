@@ -206,7 +206,7 @@ class ChatController(
     }
     private val privateDir = File(app.filesDir, "workspace").apply { mkdirs() }
     private val sharedDir = File(Environment.getExternalStorageDirectory(), "PocketCode")
-    private val linuxEnv = LinuxEnv(app).also { it.noSeccomp = settingsStore.loadLinuxNoSeccomp() }
+    private val linuxEnv = LinuxEnv(app).also { it.noSeccomp = settingsStore.loadLinuxNoSeccomp(); it.noLink = settingsStore.rawGet("linuxNoLink") == "1" }
     private val androidShell = AndroidShell(homeDir)
     private val python = PythonRunner(app)
     private val scope = CoroutineScope(
@@ -287,6 +287,7 @@ class ChatController(
             try {
                 val r = linuxEnv.install { msg -> scope.launch { linuxStatus = msg } }
                 settingsStore.saveLinuxNoSeccomp(linuxEnv.noSeccomp)
+                settingsStore.rawPut("linuxNoLink", if (linuxEnv.noLink) "1" else "0")
                 linuxInstalled = true
                 runCatching { linuxEnv.configureGit(settings.gitName, settings.gitEmail, settings.githubToken) }
                 agent = null
