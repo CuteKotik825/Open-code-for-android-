@@ -3419,6 +3419,10 @@ class ChatController(
             var proc: Process? = null
             try {
                 if (!isRetry) runCatching { snapshots.create(currentProject, workspace.root, prompt) }
+                // Зависшие процессы opencode от прошлых запусков держат блокировку базы и новые запуски молчат: убираем их (если не идёт другая вкладка)
+                if ((app as? PocketCodeApp)?.tabs?.any { it !== this@ChatController && it.running } != true) {
+                    runCatching { withContext(Dispatchers.IO) { linuxShell.run("pkill -9 -f '[o]pencode' ; true", workspace.root, 8) } }
+                }
                 val pb = linuxShell.builder(cmd, workspace.root).redirectErrorStream(true)
                 proc = pb.start()
                 proc.outputStream.close() // иначе opencode ждёт ввода из stdin и не стартует
