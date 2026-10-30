@@ -1415,6 +1415,24 @@ class ChatController(
                     r.lines().first()
                 }
             }
+            step("Канал до opencode.ai (большие запросы)") {
+                suspend fun post(n: Int): String = withContext(Dispatchers.IO) {
+                    val c = java.net.URL("https://opencode.ai/inference/openai/v1/chat/completions").openConnection() as java.net.HttpURLConnection
+                    try {
+                        c.requestMethod = "POST"; c.doOutput = true; c.connectTimeout = 12_000; c.readTimeout = 12_000
+                        c.setRequestProperty("content-type", "application/json")
+                        val body = "{\"x\":\"" + "a".repeat(n) + "\"}"
+                        c.outputStream.use { it.write(body.toByteArray()) }
+                        "HTTP " + c.responseCode
+                    } catch (e: Throwable) { "сбой: " + (e.message ?: e.javaClass.simpleName) } finally { c.disconnect() }
+                }
+                val small = post(100)
+                val big = post(60_000)
+                require(!small.startsWith("сбой") || big.startsWith("сбой")) { "маленький запрос: $small" }
+                require(!(big.startsWith("сбой") && !small.startsWith("сбой"))) { "маленький запрос проходит ($small), большой (60 КБ) обрывается ($big): оператор режет трафик к Cloudflare (лимит ~16 КБ). Нужен VPN/прокси или другая сеть." }
+                require(!big.startsWith("сбой")) { "до opencode.ai не достучаться: $big" }
+                "малый: $small, большой: $big"
+            }
             step("Свободное место") {
                 val mb = app.filesDir.usableSpace / 1_048_576
                 require(mb > 200) { "осталось только $mb МБ, очисти кэш в «Диагностике»" }
@@ -1539,11 +1557,12 @@ class ChatController(
             // В Alpine нет утилиты script, поэтому псевдотерминал создаём через Python (модуль pty)
             "export TERM=xterm; python3 -c 'import pty,sys; pty.spawn([\"sh\",\"-c\",\"stty cols 80 rows 24 2>/dev/null; \"+sys.argv[1]])' '$q'"
         } else c
+        val real2 = if (linuxActive) proxyEnv() + real else real
         termJob = scope.launch {
             var proc: Process? = null
             val screen = Screen()
             try {
-                proc = shell.builder(real, workspace.root).redirectErrorStream(true).start()
+                proc = shell.builder(real2, workspace.root).redirectErrorStream(true).start()
                 termProc = proc
                 val p = proc
                 if (!tty) p.outputStream.close()
@@ -2939,6 +2958,14 @@ class ChatController(
 
     var ocFallbackModel by mutableStateOf(settingsStore.rawGet("ocFallback").orEmpty())
         private set
+    var netProxy by mutableStateOf(settingsStore.rawGet("netProxy") ?: "")
+    fun setNetProxyValue(v: String) { netProxy = v.trim(); settingsStore.rawPut("netProxy", v.trim()) }
+    /** Прокси для программ в Linux (OpenCode, терминал): http://host:port */
+    private fun proxyEnv(): String {
+        val v = netProxy.trim().replace("'", "")
+        if (v.isEmpty()) return ""
+        return "export HTTPS_PROXY='$v' HTTP_PROXY='$v' https_proxy='$v' http_proxy='$v'; "
+    }
     fun setOcFallbackValue(v: String) { ocFallbackModel = v.trim(); settingsStore.rawPut("ocFallback", v.trim()) }
     private var ocFbUsed = false
 
@@ -3410,7 +3437,7 @@ class ChatController(
             else -> ""
         }
         val cards = ocCards
-        val cmd = perm + "opencode run" + (if (cards) " --format json" else "") + resume + model + " " + q
+        val cmd = proxyEnv() + perm + "opencode run" + (if (cards) " --format json" else "") + resume + model + " " + q
         val myRun = ++runId
         val runStart = System.currentTimeMillis()
         var retryScheduled = false
@@ -3432,6 +3459,7 @@ class ChatController(
                 var badJson = false
                 var lastOut = System.currentTimeMillis()
                 var idleItem: UiItem.Notice? = null
+                var hung = false
                 // Если OpenCode молчит (например, сервер ответил 429 и он ждёт повтора), показываем, что приложение живо
                 val watchdog = launch {
                     while (true) {
@@ -3444,6 +3472,7 @@ class ChatController(
                             if (at >= 0) items[at] = n else items += n
                             idleItem = n
                         }
+                        if (idle >= 120 && buf.length < 300) { hung = true; p.destroyForcibly(); break }
                     }
                 }
                 val reader = launch(Dispatchers.IO) {
@@ -3485,7 +3514,7 @@ class ChatController(
                 val code = withContext(Dispatchers.IO) { p.waitFor() }
                 if (placeholder && cards && idx < items.size && (items[idx] as? UiItem.Assistant)?.text?.startsWith("⏳") == true) items.removeAt(idx)
                 setOcContinue(true)
-                val text = buf.toString()
+                val text = buf.toString() + (if (hung) "\nETIMEDOUT: нет ответа от сервера за 120 с" else "")
                 // Токены: точные из событий OpenCode, иначе оценка по длине текста (≈3 символа на токен)
                 if (ocTokSeen) recordUsage(ocTokIn, ocTokOut, ocTokCache)
                 else if (code == 0 && text.isNotBlank()) recordUsage(prompt.length / 3 + 1, text.length / 3 + 1, 0)
@@ -3523,19 +3552,20 @@ class ChatController(
                         items += UiItem.Notice("Лимит на предыдущем аккаунте. Переключился на «$next» и повторяю запрос.")
                     }
                 }
-                if (!retryScheduled && code != 0 && limited && (freeLimit || ocRetries >= 4) && ocFallbackModel.isNotBlank() && ocModel != ocFallbackModel && !ocFbUsed) {
+                if (!retryScheduled && code != 0 && ((limited && (freeLimit || ocRetries >= 4)) || (netErr.containsMatchIn(text) && ocRetries >= 2)) && ocFallbackModel.isNotBlank() && ocModel != ocFallbackModel && !ocFbUsed) {
                     ocFbUsed = true
                     setOcModelValue(ocFallbackModel)
                     retryScheduled = true
                     ocRetryDelay = 3_000L
-                    items += UiItem.Notice("Лимит на выбранной модели. Переключился на запасную «$ocFallbackModel» и повторяю запрос.")
+                    items += UiItem.Notice("Модель недоступна (лимит или сеть). Переключился на запасную «$ocFallbackModel» и повторяю запрос.")
                 }
                 if (retryScheduled) {
                 } else if (code != 0 && (netErr.containsMatchIn(text) || rate) && ocRetries < 4 && !(ocCtxTokens > 200_000 && text.contains("ECONNRESET"))) {
                     ocRetries++
                     retryScheduled = true
                     ocRetryDelay = if (rate) ocRateRetryMin * 60_000L else 15_000L
-                    items += UiItem.Notice((if (rate) "Сервер просит подождать (429, слишком частые запросы)." else "Сеть недоступна (${netErr.find(text)?.value}).") + " Повтор через ${if (ocRetryDelay >= 60_000) "${ocRetryDelay / 60_000} мин" else "${ocRetryDelay / 1000} с"}, попытка $ocRetries из 4.")
+                    items += UiItem.Notice((if (rate) "Сервер просит подождать (429, слишком частые запросы)." else "Сеть недоступна (${netErr.find(text)?.value}).") + " Повтор через ${if (ocRetryDelay >= 60_000) "${ocRetryDelay / 60_000} мин" else "${ocRetryDelay / 1000} с"}, попытка $ocRetries из 4." +
+                        (if (!rate && ocRetries >= 2) "\nПохоже на ограничение связи у оператора (трафик к Cloudflare обрывается после ~16 КБ, так бывает в РФ). Помогут: другая сеть/Wi-Fi, VPN (добавь PocketCode в список приложений VPN) или прокси в «Диалоги OpenCode»." else ""))
                 } else if (code != 0) {
                     lastRunFailed = true
                     if (freeLimit) { ocAddLong("ocHits", System.currentTimeMillis(), 50); ocStatsVersion++ }

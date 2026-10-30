@@ -143,6 +143,11 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                         value = fb, onValueChange = { fb = it; vm.setOcFallbackValue(it) }, singleLine = true,
                         label = { Text("Запасная модель при лимите (провайдер/модель)") }, modifier = Modifier.fillMaxWidth(),
                     )
+                    var px by remember { mutableStateOf(vm.netProxy) }
+                    androidx.compose.material3.OutlinedTextField(
+                        value = px, onValueChange = { px = it; vm.setNetProxyValue(it) }, singleLine = true,
+                        label = { Text("HTTP-прокси для OpenCode и терминала (http://хост:порт)") }, modifier = Modifier.fillMaxWidth(),
+                    )
                     Text("Повтор после 429 (слишком частые запросы) через:", style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(1, 5, 15, 30).forEach { m ->
