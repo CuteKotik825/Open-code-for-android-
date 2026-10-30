@@ -57,6 +57,7 @@ fun TerminalScreen(vm: ChatController, onBack: () -> Unit) {
                         Text("Официальный OpenCode можно запустить внутри Linux (нужны: Linux включён и «Установить python, git, nodejs» в разделе «Проекты»). Это его собственный клиент, поэтому его бесплатные модели работают так же, как на ПК, но скорость в proot ниже и на телефоне это не проверено.", style = MaterialTheme.typography.bodySmall)
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             AssistChip(onClick = { vm.termRun(
+                                "(command -v npm >/dev/null 2>&1 || (echo 'Ставлю nodejs и npm…'; apk add --no-cache nodejs npm git libstdc++ libgcc 2>&1 | tail -n 3)); " +
                                 "case \"\$(uname -m)\" in aarch64|arm64) P=opencode-linux-arm64-musl;; *) P=opencode-linux-x64-musl;; esac; " +
                                     "npm install -g --force opencode-ai \$P > /tmp/oc-install.log 2>&1; echo \"код установки: \$?\"; tail -n 15 /tmp/oc-install.log; opencode --version",
                                 900,
