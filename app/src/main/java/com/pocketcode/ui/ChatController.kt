@@ -2947,7 +2947,7 @@ class ChatController(
         private set
     fun setOcRateRetryValue(v: Int) { ocRateRetryMin = v; settingsStore.rawPut("ocRateRetryMin", v.toString()) }
 
-    var ocAutoCompact by mutableIntStateOf(settingsStore.rawGet("ocAutoCompact")?.toIntOrNull() ?: 0)
+    var ocAutoCompact by mutableIntStateOf(settingsStore.rawGet("ocAutoCompact")?.toIntOrNull() ?: 120_000)
         private set
     fun setOcAutoCompactValue(v: Int) { ocAutoCompact = v; settingsStore.rawPut("ocAutoCompact", v.toString()) }
     private var ocCompactSoon = false
@@ -3531,7 +3531,7 @@ class ChatController(
                     items += UiItem.Notice("Лимит на выбранной модели. Переключился на запасную «$ocFallbackModel» и повторяю запрос.")
                 }
                 if (retryScheduled) {
-                } else if (code != 0 && (netErr.containsMatchIn(text) || rate) && ocRetries < 4) {
+                } else if (code != 0 && (netErr.containsMatchIn(text) || rate) && ocRetries < 4 && !(ocCtxTokens > 200_000 && text.contains("ECONNRESET"))) {
                     ocRetries++
                     retryScheduled = true
                     ocRetryDelay = if (rate) ocRateRetryMin * 60_000L else 15_000L
@@ -3540,7 +3540,8 @@ class ChatController(
                     lastRunFailed = true
                     if (freeLimit) { ocAddLong("ocHits", System.currentTimeMillis(), 50); ocStatsVersion++ }
                     scheduleOnReset(text, limited)
-                    items += UiItem.Error(
+                    if (ocCtxTokens > 200_000 && text.contains("ECONNRESET")) items += UiItem.Notice("Беседа слишком большая (≈ ${ocCtxTokens / 1000} тыс. токенов): запрос не проходит по сети. Сбрось сессию с сохранением последних сообщений (⋮ → сброс), повторы тут не помогут.")
+                        items += UiItem.Error(
                         "OpenCode завершился с кодом $code." + resetNote(text) +
                             (if (text.contains("Free usage limit", ignoreCase = true)) "\n\n💡 Это лимит бесплатных моделей на сервере OpenCode, а не ошибка приложения. Размер лимита и время сброса OpenCode не сообщает. Варианты: подождать и попробовать позже, оформить их платный тариф (opencode.ai/go) или переключиться на другого провайдера: Gemini, OpenRouter :free, Groq, NVIDIA (☰ → Настройки → Шаблоны провайдеров), выключив режим OpenCode." else "") +
                             (if (text.isBlank() || text.contains("not found")) "\n\n💡 Похоже, OpenCode не установлен: ☰ → Терминал → «Установить OpenCode». Для его бесплатных моделей может понадобиться вход: ☰ → Диалоги OpenCode → «Ключ OpenCode»." else ""),
