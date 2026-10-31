@@ -271,7 +271,7 @@ fun FilesScreen(
                         overflow = TextOverflow.Ellipsis,
                     )
                 },
-                navigationIcon = { androidx.compose.material3.IconButton(onClick = { goUp() }) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } },
+                navigationIcon = { androidx.compose.material3.IconButton(onClick = { goUp() }) { androidx.compose.material3.Icon(com.pocketcode.ui.AppIcons.Back, contentDescription = "Назад") } },
                 actions = {
                     if (editing != null) {
                         val ext = editing!!.extension.lowercase()

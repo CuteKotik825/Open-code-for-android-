@@ -56,7 +56,7 @@ fun ProjectsScreen(vm: ChatController, actions: FileActions, onOpenDevices: () -
         topBar = {
             TopAppBar(
                 title = { Text("Проекты и файлы") },
-                navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } },
+                navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(com.pocketcode.ui.AppIcons.Back, contentDescription = "Назад") } },
             )
         },
     ) { padding ->

@@ -46,7 +46,7 @@ fun TerminalScreen(vm: ChatController, onBack: () -> Unit) {
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("Терминал", maxLines = 1) },
-            navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } },
+            navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(com.pocketcode.ui.AppIcons.Back, contentDescription = "Назад") } },
             actions = { TextButton(onClick = { vm.term.clear() }) { Text("Очистить") } },
         )
     }) { pad ->

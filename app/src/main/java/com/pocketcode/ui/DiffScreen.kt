@@ -37,7 +37,7 @@ fun DiffScreen(vm: ChatController, onBack: () -> Unit) {
     val red = Color(0xFFE57373)
     val green = Color(0xFF81C784)
     Scaffold(topBar = {
-        TopAppBar(title = { Text("Правки по блокам") }, navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } })
+        TopAppBar(title = { Text("Правки по блокам") }, navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(com.pocketcode.ui.AppIcons.Back, contentDescription = "Назад") } })
     }) { pad ->
         Column(
             Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp),

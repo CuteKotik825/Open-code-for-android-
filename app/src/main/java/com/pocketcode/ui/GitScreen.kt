@@ -38,7 +38,7 @@ fun GitScreen(vm: ChatController, onBack: () -> Unit) {
     var prBody by remember { mutableStateOf("") }
     LaunchedEffect(Unit) { vm.gitRun("status") }
     Scaffold(topBar = {
-        TopAppBar(title = { Text("Git · ${vm.currentProject}") }, navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } })
+        TopAppBar(title = { Text("Git · ${vm.currentProject}") }, navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(com.pocketcode.ui.AppIcons.Back, contentDescription = "Назад") } })
     }) { pad ->
         Column(
             Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
