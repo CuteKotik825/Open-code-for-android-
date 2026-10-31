@@ -23,7 +23,7 @@ jobs:
           if [ $rc -ne 0 ]; then echo "::error::CFG $(find b/build -name config.log | head -1 | xargs -r sed -n '/accepts -fstack-protector/,$p' | grep -v '^\[\|^ *$' | head -n 40 | cut -c1-200 | tr '\n' '~')"; echo "::error::$(tail -n 8 build.log | cut -c1-220 | tr '\n' '~')"; exit 1; fi
       - name: Check process_vm_readv and commit libs
         run: |
-          readelf --dyn-syms -W out/arm64-v8a/libproot.so | grep -q process_vm_readv || { echo "::error::process_vm_readv не подключён"; exit 1; }
+          readelf --dyn-syms -W out/arm64-v8a/libproot.so | grep -q process_vm_readv || { echo "::error::NOVM $(grep -n -i 'process_vm' b/build/proot-*/src/GNUmakefile b/build/proot-*/src/*.mk 2>/dev/null | cut -c1-200 | head -12 | tr '\n' '~') LOG $(grep -i 'process_vm\|check_process' build.log | cut -c1-200 | head -8 | tr '\n' '~')"; exit 1; }
           cp out/arm64-v8a/* app/src/main/jniLibs/arm64-v8a/
           cp out/armeabi-v7a/* app/src/main/jniLibs/armeabi-v7a/
           git config user.name "github-actions"
