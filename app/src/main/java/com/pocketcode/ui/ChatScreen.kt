@@ -621,6 +621,35 @@ fun ChatScreen(
             confirmButton = { TextButton(onClick = { dlg = "" }) { Text("Закрыть") } },
         )
     }
+    if (vm.ocPending.isNotEmpty()) {
+        val req = vm.ocPending
+        val summary = "OpenCode (в Linux на телефоне, без root) просит доступ вне папки проекта:\n" +
+            req.joinToString("\n") { "• ${it.kind}: ${it.target}" } +
+            (if (req.first().command.isNotBlank()) "\nКоманда: " + req.first().command else "") +
+            "\nБезопасно ли разрешить?"
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text("OpenCode просит доступ") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Он хочет выйти за пределы папки проекта. Решай без спешки: окно не закроется само.", style = MaterialTheme.typography.bodySmall)
+                    req.forEach { Text("• ${it.target}", fontFamily = FontFamily.Monospace) }
+                    if (req.first().command.isNotBlank()) {
+                        Text("Команда:", style = MaterialTheme.typography.labelMedium)
+                        Text(req.first().command.take(800), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                        dangerNote(req.first().command)?.let { Text("⚠ $it", color = MaterialTheme.colorScheme.error) }
+                    }
+                    Text(
+                        "Linux в приложении изолирован: даже с разрешением он видит только свою файловую систему, папку проекта и /proc, но не Android, не чужие приложения и не твои фото. Чтение /proc безобидно, запись или удаление в /etc, /bin, /usr может сломать Linux.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton(onClick = { clip.setText(androidx.compose.ui.text.AnnotatedString(summary)) }) { Text("Скопировать описание, чтобы спросить нейросеть") }
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.ocPermAllow() }) { Text("Разрешить и продолжить") } },
+            dismissButton = { TextButton(onClick = { vm.ocPermDeny() }) { Text("Отклонить") } },
+        )
+    }
     if (dlg == "advice") {
         val acts = vm.adviceFor(adviceText)
         val prompt = vm.lastUserText()

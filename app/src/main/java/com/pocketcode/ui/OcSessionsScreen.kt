@@ -160,13 +160,20 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                             androidx.compose.material3.FilterChip(selected = vm.ocDailyBudget == v, onClick = { vm.setOcDailyBudgetValue(v) }, label = { Text(l) })
                         }
                     }
-                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Доступ OpenCode ко всему в Linux (вне папки проекта)", style = MaterialTheme.typography.bodySmall)
-                            Text("Без этого он не может читать /proc, /etc и др. и пишет «auto-rejecting». Linux в приложении изолирован: Android-системы и чужих приложений он всё равно не видит.", style = MaterialTheme.typography.labelSmall)
+                    Text("Доступ OpenCode вне папки проекта (/proc, /etc и т.п.):", style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("deny" to "Запретить", "ask" to "Спрашивать", "allow" to "Разрешить всё").forEach { (v, l) ->
+                            androidx.compose.material3.FilterChip(selected = vm.ocExtMode == v, onClick = { vm.setOcExtModeValue(v) }, label = { Text(l) })
                         }
-                        androidx.compose.material3.Switch(checked = vm.ocExternalAccess, onCheckedChange = { vm.setOcExternalAccessValue(it) })
                     }
+                    Text(
+                        when (vm.ocExtMode) {
+                            "ask" -> "OpenCode не может сам спросить в этом режиме, поэтому приложение покажет окно: что именно он хотел, с кнопкой «скопировать», чтобы ты мог спросить у нейросети. Времени на ответ сколько угодно."
+                            "allow" -> "Любые обращения вне проекта разрешены без вопросов. Linux в приложении изолирован: Android и чужие приложения ему не видны."
+                            else -> "Всё вне папки проекта отклоняется (кроме /tmp)."
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                    )
                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         Text("Каждый новый запрос начинает новую беседу (без длинной истории, меньше риск лимитов)", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                         androidx.compose.material3.Switch(checked = vm.ocFreshEach, onCheckedChange = { vm.setOcFreshEachValue(it) })

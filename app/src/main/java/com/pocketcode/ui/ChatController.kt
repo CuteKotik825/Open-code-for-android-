@@ -1947,7 +1947,7 @@ class ChatController(
 
     private val backupPrefKeys = listOf(
         "syncRepo", "syncProjects", "syncInterval", "syncHost", "ocFallback", "ocAutoSwitch", "ocAutoCompact", "ocRateRetryMin",
-        "ocBudget", "ocFresh", "ocExt", "ocModel", "ocCards", "themeMode", "palette", "amoled", "templates", "stars", "ocPins", "ocTitles", "bigInput",
+        "ocBudget", "ocFresh", "ocExtMode", "ocModel", "ocCards", "themeMode", "palette", "amoled", "templates", "stars", "ocPins", "ocTitles", "bigInput",
     )
 
     private fun cryptKey(password: String, salt: ByteArray): javax.crypto.spec.SecretKeySpec {
@@ -2973,9 +2973,44 @@ class ChatController(
         if (v.isEmpty()) return ""
         return "export HTTPS_PROXY='$v' HTTP_PROXY='$v' https_proxy='$v' http_proxy='$v'; "
     }
-    var ocExternalAccess by mutableStateOf(settingsStore.rawGet("ocExt") == "1")
+    /** Доступ OpenCode вне папки проекта: deny — запретить, ask — спрашивать каждый раз, allow — разрешить всё. */
+    var ocExtMode by mutableStateOf(settingsStore.rawGet("ocExtMode") ?: "ask")
         private set
-    fun setOcExternalAccessValue(v: Boolean) { ocExternalAccess = v; settingsStore.rawPut("ocExt", if (v) "1" else "0") }
+    fun setOcExtModeValue(v: String) { ocExtMode = v; settingsStore.rawPut("ocExtMode", v) }
+
+    class OcPermRequest(val kind: String, val target: String, val command: String)
+    /** Доступы, о которых OpenCode просил, а режим «run» их отклонил: ждут решения пользователя (без таймера). */
+    var ocPending by mutableStateOf<List<OcPermRequest>>(emptyList())
+        private set
+    private val ocGranted = mutableStateListOf<String>()
+    private val permRegex = Regex("""permission requested: (\w+) \(([^)]+)\); auto-rejecting""")
+
+    private fun ocPermEnv(): String {
+        val q = { t: String -> t.replace("\"", "").replace("'", "") }
+        if (ocExtMode == "allow") return "export OPENCODE_PERMISSION='{\"external_directory\":\"allow\"}'; "
+        val rules = (listOf("/tmp", "/tmp/**") + ocGranted).distinct().joinToString(",") { "\"${q(it)}\":\"allow\"" }
+        return "export OPENCODE_PERMISSION='{\"external_directory\":{$rules}}'; "
+    }
+
+    private fun collectOcPerms(text: String) {
+        if (ocExtMode != "ask") return
+        val found = permRegex.findAll(text).map { it.groupValues[1] to it.groupValues[2].trim() }.distinct()
+            .filter { it.first == "external_directory" && it.second !in ocGranted }.toList()
+        if (found.isEmpty()) return
+        val cmd = items.lastOrNull { it is UiItem.Tool && it.isError }.let { (it as? UiItem.Tool)?.description.orEmpty() }
+        ocPending = found.map { OcPermRequest(it.first, it.second, cmd) }
+    }
+
+    fun ocPermAllow() {
+        val req = ocPending
+        if (req.isEmpty()) return
+        req.forEach { if (it.target !in ocGranted) ocGranted += it.target }
+        ocPending = emptyList()
+        send("Пользователь разрешил доступ к: " + req.joinToString { it.target } + ". Повтори то, что не получилось.")
+    }
+
+    fun ocPermDeny() { ocPending = emptyList() }
+    fun ocPermReset() { ocGranted.clear() }
     fun setOcFallbackValue(v: String) { ocFallbackModel = v.trim(); settingsStore.rawPut("ocFallback", v.trim()) }
     private var ocFbUsed = false
 
@@ -3440,8 +3475,7 @@ class ChatController(
         val q = "'" + sentPrompt.replace("'", "'\\''") + "'"
         val model = ocModel.trim().takeIf { it.isNotEmpty() }?.let { " -m '" + it.replace("'", "") + "'" } ?: ""
         // /tmp разрешён всегда (временные файлы), остальное вне проекта OpenCode по-прежнему отклоняет
-        val perm = if (ocExternalAccess) "export OPENCODE_PERMISSION='{\"external_directory\":\"allow\"}'; "
-            else "export OPENCODE_PERMISSION='{\"external_directory\":{\"/tmp\":\"allow\",\"/tmp/**\":\"allow\"}}'; "
+        val perm = ocPermEnv()
         val resume = when {
             ocSessionId != null -> " --session '" + ocSessionId!!.replace("'", "") + "'"
             ocContinue || isRetry -> " --continue"
@@ -3530,6 +3564,7 @@ class ChatController(
                 if (ocTokSeen) recordUsage(ocTokIn, ocTokOut, ocTokCache)
                 else if (code == 0 && text.isNotBlank()) recordUsage(prompt.length / 3 + 1, text.length / 3 + 1, 0)
                 if (ocTokSeen && ocStepCtx > 0) ocCtxTokens = ocStepCtx
+                collectOcPerms(text)
                 val freeLimit = text.contains("Free usage limit", ignoreCase = true)
                 val rate = !freeLimit && rate429.containsMatchIn(text)
                 val limited = freeLimit || rate
