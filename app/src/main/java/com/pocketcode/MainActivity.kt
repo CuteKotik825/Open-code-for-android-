@@ -190,7 +190,9 @@ class MainActivity : ComponentActivity() {
                 fun openFrom(hub: Screen, target: Screen) { backTo = hub; screen = target }
                 val pv = vm.previewUrl
                 val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 840
-                val imeOn = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+                val imeDensity = androidx.compose.ui.platform.LocalDensity.current
+                // Клавиатура считается открытой только если она действительно высокая (плавающие панели ввода давали ложное срабатывание)
+                val imeOn = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(imeDensity) > with(imeDensity) { 160.dp.roundToPx() }
                 val section = when (screen) {
                     Screen.CHAT -> 0
                     Screen.HUB_PROJECT, Screen.PROJECTS, Screen.FILES, Screen.SEARCH, Screen.DIFF, Screen.GIT, Screen.TERMINAL -> 1
