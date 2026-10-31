@@ -9,7 +9,8 @@ grep -n "API=\|NDK=\|ARCHS=" config
 ./make-talloc-static.sh
 PROOT_API=24 ./make-proot-for-apk.sh
 mkdir -p ../out/arm64-v8a ../out/armeabi-v7a
-cp build/root-aarch64-apk/bin/libproot.so build/root-aarch64-apk/bin/libproot-loader.so build/root-aarch64-apk/bin/libproot-loader32.so ../out/arm64-v8a/ || ls build/root-aarch64-apk/bin
-cp build/root-armv7a-apk/bin/libproot.so build/root-armv7a-apk/bin/libproot-loader.so ../out/armeabi-v7a/ || ls build/root-armv7a-apk/bin
+cp build/root-aarch64/root-apk/bin/libproot.so build/root-aarch64/root-apk/bin/libproot-loader.so build/root-aarch64/root-apk/bin/libproot-loader32.so ../out/arm64-v8a/ || ls build/root-aarch64/root-apk/bin
+cp build/root-armv7a/root-apk/bin/libproot.so build/root-armv7a/root-apk/bin/libproot-loader.so ../out/armeabi-v7a/ || ls build/root-armv7a/root-apk/bin
 ls -la ../out/*
-strings ../out/arm64-v8a/libproot.so | grep -i "process_vm" | head -3 || true
+(strings ../out/arm64-v8a/libproot.so | grep -i "process_vm" | head -3) || true
+../out/arm64-v8a/libproot.so -V 2>/dev/null | head -20 || true
