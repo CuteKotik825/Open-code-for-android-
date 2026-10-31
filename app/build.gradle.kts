@@ -29,10 +29,19 @@ android {
     // подписаны одним ключом, и APK ставится поверх предыдущей версии.
     signingConfigs {
         getByName("debug") {
-            storeFile = file("debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+            // Свой ключ: если CI передал его через секреты, подписываем им; иначе общий debug-ключ
+            val ownKs = System.getenv("PC_KEYSTORE")
+            if (ownKs != null && File(ownKs).exists()) {
+                storeFile = File(ownKs)
+                storePassword = System.getenv("PC_STORE_PASS")
+                keyAlias = System.getenv("PC_KEY_ALIAS")
+                keyPassword = System.getenv("PC_KEY_PASS")
+            } else {
+                storeFile = file("debug.keystore")
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
         }
     }
 

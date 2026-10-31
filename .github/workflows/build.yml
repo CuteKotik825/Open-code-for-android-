@@ -25,6 +25,24 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      - name: Подпись своим ключом (если заданы секреты)
+        env:
+          KS: ${{ secrets.PC_KEYSTORE_B64 }}
+          SP: ${{ secrets.PC_STORE_PASS }}
+          KA: ${{ secrets.PC_KEY_ALIAS }}
+          KP: ${{ secrets.PC_KEY_PASS }}
+        run: |
+          if [ -n "$KS" ]; then
+            echo "$KS" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "PC_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "PC_STORE_PASS=$SP" >> "$GITHUB_ENV"
+            echo "PC_KEY_ALIAS=$KA" >> "$GITHUB_ENV"
+            echo "PC_KEY_PASS=$KP" >> "$GITHUB_ENV"
+            echo "Подписываю своим ключом"
+          else
+            echo "Секретов нет: общий debug-ключ"
+          fi
+
       - name: Build debug APK
         run: |
           set -o pipefail
@@ -54,5 +72,5 @@ jobs:
             --title "Сборка ${{ github.run_number }}" \
             --notes "$(git log -1 --pretty=%s)" \
             --target "${{ github.sha }}"
-          # оставляем только 5 последних релизов
+          # оставляем только 10 последних релизов
           gh release list --limit 100 --json tagName -q '.[10:][].tagName' | xargs -r -I{} gh release delete {} --cleanup-tag -y

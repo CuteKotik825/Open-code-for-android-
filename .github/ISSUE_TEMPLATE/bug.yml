@@ -1,0 +1,21 @@
+name: Ошибка
+description: Что-то работает не так
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Что случилось
+      description: Что ты делал, что ожидал и что получил. Скриншот поможет.
+    validations: { required: true }
+  - type: textarea
+    id: report
+    attributes:
+      label: Отчёт из приложения
+      description: «Ещё» → «Диагностика и расход» → скопировать отчёт. Ключи в нём скрыты.
+      render: text
+  - type: input
+    id: phone
+    attributes:
+      label: Телефон и версия Android
+      placeholder: Например, Honor Magic 6 Pro, Android 15
