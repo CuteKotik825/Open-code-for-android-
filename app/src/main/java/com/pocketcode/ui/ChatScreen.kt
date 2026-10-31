@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -465,7 +467,8 @@ fun ChatScreen(
                 androidx.compose.material3.AssistChip(onClick = { showNewChat = true }, label = { Text("Новый чат") }, leadingIcon = { Icon(Icons.Filled.Add, null, Modifier.size(16.dp)) })
             }
             androidx.compose.material3.Surface(
-                tonalElevation = 3.dp,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 shape = RoundedCornerShape(28.dp),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             ) {
@@ -926,21 +929,36 @@ private fun EmptyHint(workspacePath: String, onPick: (String) -> Unit) {
 private fun ItemView(item: UiItem) {
     when (item) {
         is UiItem.User -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 4.dp),
-                modifier = Modifier.fillMaxWidth(0.85f),
+            Box(
+                Modifier.fillMaxWidth(0.85f)
+                    .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp, bottomStart = 22.dp, bottomEnd = 5.dp))
+                    .background(
+                        androidx.compose.ui.graphics.Brush.linearGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.primaryContainer,
+                                androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primary, 0.28f),
+                            ),
+                        ),
+                    ),
             ) {
                 SelectionContainer {
                     Text(
                         (if (item.images > 0) "🖼 ×${item.images}\n" else "") + item.text,
-                        modifier = Modifier.padding(12.dp),
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
                     )
                 }
             }
         }
-        is UiItem.Assistant -> SelectionContainer {
-            MarkdownText(item.text, modifier = Modifier.fillMaxWidth())
+        is UiItem.Assistant -> Box(
+            Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = 5.dp, topEnd = 22.dp, bottomStart = 22.dp, bottomEnd = 22.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+        ) {
+            SelectionContainer {
+                MarkdownText(item.text, modifier = Modifier.fillMaxWidth())
+            }
         }
         is UiItem.Tool -> {
             var expanded by remember { mutableStateOf(false) }
@@ -948,11 +966,13 @@ private fun ItemView(item: UiItem) {
             Card(
                 colors = CardDefaults.cardColors(
                     containerColor = if (item.isError) MaterialTheme.colorScheme.errorContainer
-                    else MaterialTheme.colorScheme.surfaceVariant,
+                    else MaterialTheme.colorScheme.surfaceContainer,
                 ),
+                border = androidx.compose.foundation.BorderStroke(1.dp, if (item.isError) MaterialTheme.colorScheme.error.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
+                    .animateContentSize()
                     .clickable { expanded = !expanded },
             ) {
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
@@ -1001,6 +1021,7 @@ private fun ItemView(item: UiItem) {
                 .padding(vertical = 6.dp, horizontal = 12.dp),
         )
         is UiItem.Error -> Card(
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier.fillMaxWidth(),

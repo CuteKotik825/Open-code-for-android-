@@ -36,9 +36,20 @@ fun HubScreen(title: String, subtitle: String, items: List<HubItem>) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            Column(Modifier.padding(top = 24.dp, bottom = 8.dp)) {
-                Text(title, style = MaterialTheme.typography.headlineMedium)
-                if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(
+                Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp)
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(
+                        androidx.compose.ui.graphics.Brush.linearGradient(
+                            listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.surfaceContainer),
+                        ),
+                    )
+                    .padding(horizontal = 20.dp, vertical = 26.dp),
+            ) {
+                Column {
+                    Text(title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+                }
             }
         }
         items(items) { it ->
@@ -46,6 +57,7 @@ fun HubScreen(title: String, subtitle: String, items: List<HubItem>) {
                 onClick = it.onClick,
                 shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {

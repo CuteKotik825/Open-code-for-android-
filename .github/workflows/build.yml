@@ -39,6 +39,11 @@ jobs:
             echo "PC_KEY_ALIAS=$KA" >> "$GITHUB_ENV"
             echo "PC_KEY_PASS=$KP" >> "$GITHUB_ENV"
             echo "Подписываю своим ключом"
+            if keytool -list -keystore "$RUNNER_TEMP/release.jks" -storepass "$SP" -alias "$KA" > "$RUNNER_TEMP/ks.txt" 2>&1; then
+              echo "::notice title=Ключ подписи::OK $(grep -o 'SHA-256.*' "$RUNNER_TEMP/ks.txt" | head -1)"
+            else
+              echo "::error title=Ключ подписи::не открывается, проверь секреты. $(head -c 200 "$RUNNER_TEMP/ks.txt" | tr '\n' ' ')"; exit 1
+            fi
           else
             echo "Секретов нет: общий debug-ключ"
           fi
@@ -47,6 +52,11 @@ jobs:
         run: |
           set -o pipefail
           gradle :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+
+      - name: Подпись готового APK
+        run: |
+          AS=$(ls $ANDROID_HOME/build-tools/*/apksigner | sort | tail -1)
+          "$AS" verify --print-certs app/build/outputs/apk/debug/*.apk | grep -i "SHA-256" | head -1 | sed 's/^/::notice title=Подпись APK::/'
 
       - name: Show build errors
         if: failure()

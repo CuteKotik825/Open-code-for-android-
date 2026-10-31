@@ -492,6 +492,7 @@ private fun AppTheme(content: @Composable () -> Unit) {
     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides dens) {
         MaterialTheme(
             colorScheme = scheme,
+            typography = com.pocketcode.ui.AppTypography,
             shapes = androidx.compose.material3.Shapes(
                 extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
                 small = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
