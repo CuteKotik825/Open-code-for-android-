@@ -7,6 +7,8 @@ grep -n "API=\|NDK=\|ARCHS=" config
 ./get-talloc.sh
 ./get-proot.sh
 ./make-talloc-static.sh
+sed -i 's|-Werror=implicit-function-declaration"|-Werror=implicit-function-declaration -D_GNU_SOURCE"|' make-proot-for-apk.sh
+grep -n "_GNU_SOURCE" make-proot-for-apk.sh
 PROOT_API=24 ./make-proot-for-apk.sh
 mkdir -p ../out/arm64-v8a ../out/armeabi-v7a
 cp build/root-aarch64/root-apk/bin/libproot.so build/root-aarch64/root-apk/bin/libproot-loader.so build/root-aarch64/root-apk/bin/libproot-loader32.so ../out/arm64-v8a/ || ls build/root-aarch64/root-apk/bin
