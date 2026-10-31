@@ -1,6 +1,8 @@
 package com.pocketcode.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -129,7 +131,7 @@ fun SettingsScreen(
         topBar = {
             TopAppBar(
                 title = { Text(if (savedMark) "Настройки · сохранено" else "Настройки") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("Назад") } },
+                navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } },
             )
         },
     ) { padding ->
@@ -501,8 +503,25 @@ fun SettingsScreen(
             }
             Text("Тема", style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("system" to "Как в системе", "light" to "Светлая", "dark" to "Тёмная").forEach { (v, l) ->
+                listOf("dark" to "Тёмная", "light" to "Светлая", "system" to "Как в системе").forEach { (v, l) ->
                     androidx.compose.material3.FilterChip(selected = vm.themeMode == v, onClick = { vm.setThemeModeValue(v) }, label = { Text(l) })
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("AMOLED: чисто чёрный фон")
+                    Text("Экономит заряд на OLED-экранах. Действует в тёмной теме.", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = vm.amoled, onCheckedChange = { vm.setAmoledValue(it) })
+            }
+            Text("Цвет акцента", style = MaterialTheme.typography.bodyMedium)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                (ACCENTS.map { Triple(it.id, it.title, it.dark) } + Triple("system", "Из обоев", androidx.compose.ui.graphics.Color(0xFF9E9E9E))).forEach { (id, title, color) ->
+                    androidx.compose.material3.FilterChip(
+                        selected = vm.palette == id, onClick = { vm.setPaletteValue(id) },
+                        leadingIcon = { androidx.compose.foundation.layout.Box(Modifier.size(14.dp).background(color, androidx.compose.foundation.shape.CircleShape)) },
+                        label = { Text(title) },
+                    )
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {

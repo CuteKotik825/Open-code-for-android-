@@ -39,7 +39,7 @@ fun PreviewScreen(url: String, title: String, onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text(title, maxLines = 1) },
-                navigationIcon = { TextButton(onClick = onBack) { Text("Назад") } },
+                navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } },
                 actions = { TextButton(onClick = { web?.reload() }) { Text("Обновить") } },
             )
         },

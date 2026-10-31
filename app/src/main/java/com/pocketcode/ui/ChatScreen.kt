@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -153,10 +154,11 @@ fun ChatScreen(
             TopAppBar(
                 title = {
                     TextButton(onClick = onOpenProjects) {
-                        Text("📁 " + vm.currentProject, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Icon(AppIcons.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(vm.currentProject, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 },
-                navigationIcon = { IconButton(onClick = onMenu) { Text("☰", style = MaterialTheme.typography.titleLarge) } },
                 actions = {
                     IconButton(onClick = { showNewChat = true }) {
                         Icon(Icons.Filled.Add, contentDescription = "Новый чат")
@@ -451,6 +453,16 @@ fun ChatScreen(
                     Text("Картинок приложено: ${vm.pendingImages.size}", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
                     TextButton(onClick = { vm.removeImage(vm.pendingImages.lastIndex) }) { Text("Убрать последнюю") }
                 }
+            }
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (vm.running) androidx.compose.material3.AssistChip(onClick = { vm.stop() }, label = { Text("Остановить") })
+                androidx.compose.material3.AssistChip(onClick = onOpenFiles, label = { Text("Файлы") }, leadingIcon = { Icon(AppIcons.Folder, null, Modifier.size(16.dp)) })
+                androidx.compose.material3.AssistChip(onClick = onOpenTerminal, label = { Text("Терминал") })
+                if (vm.changes.isNotEmpty()) androidx.compose.material3.AssistChip(onClick = onOpenDiff, label = { Text("Правки (${vm.changes.size})") })
+                androidx.compose.material3.AssistChip(onClick = { showNewChat = true }, label = { Text("Новый чат") }, leadingIcon = { Icon(Icons.Filled.Add, null, Modifier.size(16.dp)) })
             }
             androidx.compose.material3.Surface(
                 tonalElevation = 3.dp,

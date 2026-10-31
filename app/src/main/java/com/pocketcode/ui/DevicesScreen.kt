@@ -43,7 +43,7 @@ fun DevicesScreen(vm: ChatController, onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text("Устройства и root") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("Назад") } },
+                navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } },
             )
         },
     ) { padding ->

@@ -42,7 +42,7 @@ fun SearchScreen(vm: ChatController, onBack: () -> Unit, onPicked: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     Scaffold(topBar = {
-        TopAppBar(title = { Text("Поиск · ${vm.currentProject}") }, navigationIcon = { TextButton(onClick = onBack) { Text("Назад") } })
+        TopAppBar(title = { Text("Поиск · ${vm.currentProject}") }, navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } })
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true, label = { Text("Что искать") }, modifier = Modifier.fillMaxWidth())

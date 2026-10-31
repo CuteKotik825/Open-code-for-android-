@@ -48,7 +48,7 @@ fun PluginsScreen(vm: ChatController, onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text("Навыки, команды, MCP") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("Назад") } },
+                navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } },
             )
         },
     ) { padding ->

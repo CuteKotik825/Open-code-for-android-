@@ -1947,7 +1947,7 @@ class ChatController(
 
     private val backupPrefKeys = listOf(
         "syncRepo", "syncProjects", "syncInterval", "syncHost", "ocFallback", "ocAutoSwitch", "ocAutoCompact", "ocRateRetryMin",
-        "ocBudget", "ocFresh", "ocModel", "ocCards", "themeMode", "templates", "stars", "ocPins", "ocTitles", "bigInput",
+        "ocBudget", "ocFresh", "ocModel", "ocCards", "themeMode", "palette", "amoled", "templates", "stars", "ocPins", "ocTitles", "bigInput",
     )
 
     private fun cryptKey(password: String, salt: ByteArray): javax.crypto.spec.SecretKeySpec {
@@ -2953,9 +2953,15 @@ class ChatController(
     }
 
     // --- тема, журнал запросов, закрепления, запасная модель, автосжатие ---
-    var themeMode by mutableStateOf(settingsStore.rawGet("themeMode") ?: "system")
+    var themeMode by mutableStateOf(settingsStore.rawGet("themeMode") ?: "dark")
         private set
     fun setThemeModeValue(v: String) { themeMode = v; settingsStore.rawPut("themeMode", v) }
+    var palette by mutableStateOf(settingsStore.rawGet("palette") ?: "blue")
+        private set
+    fun setPaletteValue(v: String) { palette = v; settingsStore.rawPut("palette", v) }
+    var amoled by mutableStateOf(settingsStore.rawGet("amoled") == "1")
+        private set
+    fun setAmoledValue(v: Boolean) { amoled = v; settingsStore.rawPut("amoled", if (v) "1" else "0") }
 
     var ocFallbackModel by mutableStateOf(settingsStore.rawGet("ocFallback").orEmpty())
         private set

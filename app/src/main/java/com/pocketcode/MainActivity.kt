@@ -12,6 +12,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -49,7 +67,7 @@ import com.pocketcode.ui.ProjectsScreen
 import com.pocketcode.ui.SessionsScreen
 import com.pocketcode.ui.SettingsScreen
 
-private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS, REMOTE, DIFF, SEARCH }
+private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS, REMOTE, DIFF, SEARCH, HUB_PROJECT, HUB_AGENT, HUB_MORE }
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
@@ -166,52 +184,83 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 var screen by remember { mutableStateOf(Screen.CHAT) }
+                var backTo by remember { mutableStateOf(Screen.CHAT) }
+                fun openFrom(hub: Screen, target: Screen) { backTo = hub; screen = target }
                 val pv = vm.previewUrl
                 val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 840
+                val imeOn = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+                val section = when (screen) {
+                    Screen.CHAT -> 0
+                    Screen.HUB_PROJECT, Screen.PROJECTS, Screen.FILES, Screen.SEARCH, Screen.DIFF, Screen.GIT, Screen.TERMINAL -> 1
+                    Screen.HUB_AGENT, Screen.OCSESSIONS, Screen.PLUGINS, Screen.CONTEXT, Screen.COMPARE, Screen.SESSIONS -> 2
+                    else -> 3
+                }
+                androidx.compose.material3.Scaffold(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    bottomBar = {
+                        if (pv == null && !imeOn) androidx.compose.material3.NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                            listOf(
+                                Triple("Чат", com.pocketcode.ui.AppIcons.Chat, Screen.CHAT),
+                                Triple("Проект", com.pocketcode.ui.AppIcons.Folder, Screen.HUB_PROJECT),
+                                Triple("Агент", com.pocketcode.ui.AppIcons.Bolt, Screen.HUB_AGENT),
+                                Triple("Ещё", com.pocketcode.ui.AppIcons.Grid, Screen.HUB_MORE),
+                            ).forEachIndexed { i, (label, icon, target) ->
+                                androidx.compose.material3.NavigationBarItem(
+                                    selected = section == i,
+                                    onClick = { backTo = Screen.CHAT; screen = target },
+                                    icon = { androidx.compose.material3.Icon(icon, contentDescription = label) },
+                                    label = { Text(label) },
+                                    alwaysShowLabel = true,
+                                )
+                            }
+                        }
+                    },
+                ) { pad ->
+                androidx.compose.foundation.layout.Box(Modifier.padding(pad).consumeWindowInsets(pad)) {
                 if (pv != null) {
                     PreviewScreen(pv, "Превью", onBack = { vm.previewUrl = null })
                 } else when (screen) {
+                    Screen.HUB_PROJECT -> {
+                        BackHandler { screen = Screen.CHAT }
+                        com.pocketcode.ui.HubScreen(
+                            "Проект", "Сейчас открыт: " + vm.currentProject,
+                            listOf(
+                                com.pocketcode.ui.HubItem(Icons.Default.Home, "Проекты", "Список проектов, создать новый или открыть папку телефона") { openFrom(Screen.HUB_PROJECT, Screen.PROJECTS) },
+                                com.pocketcode.ui.HubItem(Icons.Default.List, "Файлы", "Смотреть и править файлы проекта") { openFrom(Screen.HUB_PROJECT, Screen.FILES) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Search, "Поиск по проекту", "Найти текст или TODO во всех файлах") { openFrom(Screen.HUB_PROJECT, Screen.SEARCH) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Edit, "Правки агента", "Что изменил агент, откат по блокам, сравнение со снимком", { openFrom(Screen.HUB_PROJECT, Screen.DIFF) }, if (vm.changes.isNotEmpty()) "${vm.changes.size}" else null),
+                                com.pocketcode.ui.HubItem(Icons.Default.PlayArrow, "Терминал и запуск", "Команды в Linux, кнопки запуска проекта") { openFrom(Screen.HUB_PROJECT, Screen.TERMINAL) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Share, "Git и GitHub", "Коммиты, ветки, PR, проверки сборки") { openFrom(Screen.HUB_PROJECT, Screen.GIT) },
+                            ),
+                        )
+                    }
+                    Screen.HUB_AGENT -> {
+                        BackHandler { screen = Screen.CHAT }
+                        com.pocketcode.ui.HubScreen(
+                            "Агент", vm.profileLabel + (if (vm.openCodeMode) " · режим OpenCode" else ""),
+                            listOf(
+                                com.pocketcode.ui.HubItem(Icons.Default.Person, "OpenCode: беседы и аккаунты", "Сессии, аккаунты, лимиты, запасная модель, прокси") { openFrom(Screen.HUB_AGENT, Screen.OCSESSIONS) },
+                                com.pocketcode.ui.HubItem(Icons.Default.DateRange, "История чатов", "Прошлые беседы, вернуться к любой") { openFrom(Screen.HUB_AGENT, Screen.SESSIONS) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Build, "Навыки, команды, MCP", "Готовые инструкции и подключаемые инструменты") { openFrom(Screen.HUB_AGENT, Screen.PLUGINS) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Info, "Что в контексте", "Что агент сейчас «помнит» и сколько это весит") { openFrom(Screen.HUB_AGENT, Screen.CONTEXT) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Star, "Сравнить модели", "Один запрос сразу в нескольких моделях") { openFrom(Screen.HUB_AGENT, Screen.COMPARE) },
+                            ),
+                        )
+                    }
+                    Screen.HUB_MORE -> {
+                        BackHandler { screen = Screen.CHAT }
+                        com.pocketcode.ui.HubScreen(
+                            "Ещё", "Настройки и служебные разделы",
+                            listOf(
+                                com.pocketcode.ui.HubItem(Icons.Default.Settings, "Настройки", "Провайдеры и ключи, тема, безопасность, правила") { openFrom(Screen.HUB_MORE, Screen.SETTINGS) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Refresh, "Синхронизация и пульт", "Файлы между телефонами и задачи на другой телефон") { openFrom(Screen.HUB_MORE, Screen.REMOTE) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Phone, "Устройства", "ADB, root, подключённые устройства") { openFrom(Screen.HUB_MORE, Screen.DEVICES) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Warning, "Диагностика и расход", "Проверка, расход токенов, копия настроек, очистка") { openFrom(Screen.HUB_MORE, Screen.DIAG) },
+                            ),
+                        )
+                    }
                     Screen.CHAT -> {
                         val chat: @Composable () -> Unit = {
-                          val drawer = androidx.compose.material3.rememberDrawerState(androidx.compose.material3.DrawerValue.Closed)
-                          val dScope = androidx.compose.runtime.rememberCoroutineScope()
-                          fun go(s: Screen) { dScope.launch { drawer.close() }; screen = s }
-                          androidx.compose.material3.ModalNavigationDrawer(
-                            drawerState = drawer,
-                            drawerContent = {
-                              androidx.compose.material3.ModalDrawerSheet {
-                                androidx.compose.foundation.layout.Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(vertical = 12.dp)) {
-                                  Text("PocketCode", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
-                                  Text(vm.currentProject + " · " + vm.profileLabel, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 24.dp))
-                                  androidx.compose.material3.HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                                  listOf(
-                                    "💬 История чатов" to Screen.SESSIONS,
-                                    "📁 Проекты" to Screen.PROJECTS,
-                                    "🗂 Файлы" to Screen.FILES,
-                                    "🤖 Диалоги OpenCode" to Screen.OCSESSIONS,
-                                    "🔄 Синхронизация и пульт" to Screen.REMOTE,
-                                    "🔎 Поиск по проекту" to Screen.SEARCH,
-                                    "⌨️ Терминал" to Screen.TERMINAL,
-                                    "🌿 Git" to Screen.GIT,
-                                    "🧠 Что в контексте" to Screen.CONTEXT,
-                                    "🧩 Навыки, команды, MCP" to Screen.PLUGINS,
-                                    "📱 Устройства" to Screen.DEVICES,
-                                    "📊 Диагностика и расход" to Screen.DIAG,
-                                    "⚖️ Сравнить модели" to Screen.COMPARE,
-                                    "⚙️ Настройки" to Screen.SETTINGS,
-                                  ).forEach { (title, target) ->
-                                    androidx.compose.material3.NavigationDrawerItem(
-                                      label = { Text(title) },
-                                      selected = false,
-                                      onClick = { go(target) },
-                                      modifier = Modifier.padding(horizontal = 12.dp),
-                                    )
-                                  }
-                                }
-                              }
-                            },
-                            gesturesEnabled = true,
-                          ) {
                           androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
                             TabBar(pocketApp)
                             androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
@@ -227,7 +276,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenGit = { screen = Screen.GIT },
                                 onOpenOcSessions = { screen = Screen.OCSESSIONS },
                                 onOpenDiff = { screen = Screen.DIFF },
-                                onMenu = { dScope.launch { drawer.open() } },
+                                onMenu = { screen = Screen.HUB_MORE },
                                 onExport = { exportMd.launch("chat-" + vm.currentProject + ".md") },
                                 onPickFolder = {
                                     pickFolderFresh = true
@@ -236,7 +285,6 @@ class MainActivity : ComponentActivity() {
                             )
                             }
                             }
-                          }
                           }
                         }
                         if (wide) {
@@ -259,7 +307,7 @@ class MainActivity : ComponentActivity() {
                         } else chat()
                     }
                     Screen.SETTINGS -> {
-                        BackHandler { screen = Screen.CHAT }
+                        BackHandler { screen = backTo }
                         val pv0 = pocketApp.controller
                         SettingsScreen(
                             vm = pv0,
@@ -267,49 +315,49 @@ class MainActivity : ComponentActivity() {
                             onSave = { s, p, a -> pv0.saveSettings(s, p, a) },
                             onResetContext = { vm.resetContext() },
                             onOpenCompare = { screen = Screen.COMPARE },
-                            onBack = { screen = Screen.CHAT },
+                            onBack = { screen = backTo },
                         )
                     }
                     Screen.DIFF -> {
-                        BackHandler { screen = Screen.CHAT }
-                        com.pocketcode.ui.DiffScreen(vm, onBack = { screen = Screen.CHAT })
+                        BackHandler { screen = backTo }
+                        com.pocketcode.ui.DiffScreen(vm, onBack = { screen = backTo })
                     }
                     Screen.SEARCH -> {
-                        BackHandler { screen = Screen.CHAT }
-                        com.pocketcode.ui.SearchScreen(vm, onBack = { screen = Screen.CHAT }, onPicked = { screen = Screen.CHAT })
+                        BackHandler { screen = backTo }
+                        com.pocketcode.ui.SearchScreen(vm, onBack = { screen = backTo }, onPicked = { screen = Screen.CHAT })
                     }
                     Screen.REMOTE -> {
-                        BackHandler { screen = Screen.CHAT }
-                        com.pocketcode.ui.RemoteScreen(vm, onBack = { screen = Screen.CHAT })
+                        BackHandler { screen = backTo }
+                        com.pocketcode.ui.RemoteScreen(vm, onBack = { screen = backTo })
                     }
                     Screen.OCSESSIONS -> {
-                        BackHandler { screen = Screen.CHAT }
-                        com.pocketcode.ui.OcSessionsScreen(vm, onBack = { screen = Screen.CHAT }, onOpened = { screen = Screen.CHAT })
+                        BackHandler { screen = backTo }
+                        com.pocketcode.ui.OcSessionsScreen(vm, onBack = { screen = backTo }, onOpened = { screen = Screen.CHAT })
                     }
                     Screen.TERMINAL -> {
-                        BackHandler { screen = Screen.CHAT }
-                        com.pocketcode.ui.TerminalScreen(vm, onBack = { screen = Screen.CHAT })
+                        BackHandler { screen = backTo }
+                        com.pocketcode.ui.TerminalScreen(vm, onBack = { screen = backTo })
                     }
                     Screen.GIT -> {
-                        BackHandler { screen = Screen.CHAT }
-                        com.pocketcode.ui.GitScreen(vm, onBack = { screen = Screen.CHAT })
+                        BackHandler { screen = backTo }
+                        com.pocketcode.ui.GitScreen(vm, onBack = { screen = backTo })
                     }
                     Screen.CONTEXT -> {
-                        BackHandler { screen = Screen.CHAT }
-                        com.pocketcode.ui.ContextScreen(vm, onBack = { screen = Screen.CHAT })
+                        BackHandler { screen = backTo }
+                        com.pocketcode.ui.ContextScreen(vm, onBack = { screen = backTo })
                     }
                     Screen.COMPARE -> {
-                        BackHandler { screen = Screen.SETTINGS }
-                        CompareScreen(vm, onBack = { screen = Screen.SETTINGS })
+                        BackHandler { screen = backTo }
+                        CompareScreen(vm, onBack = { screen = backTo })
                     }
                     Screen.PROJECTS -> {
-                        BackHandler { screen = Screen.CHAT }
-                        ProjectsScreen(vm, actions, onOpenDevices = { screen = Screen.DEVICES }, onOpenPlugins = { screen = Screen.PLUGINS }, onOpenDiag = { screen = Screen.DIAG }, onBack = { screen = Screen.CHAT })
+                        BackHandler { screen = backTo }
+                        ProjectsScreen(vm, actions, onOpenDevices = { openFrom(Screen.PROJECTS, Screen.DEVICES) }, onOpenPlugins = { openFrom(Screen.PROJECTS, Screen.PLUGINS) }, onOpenDiag = { openFrom(Screen.PROJECTS, Screen.DIAG) }, onBack = { screen = backTo })
                     }
                     Screen.FILES -> FilesScreen(
                         vm.projectRoot,
                         vm.currentProject,
-                        onBack = { screen = Screen.CHAT },
+                        onBack = { screen = backTo },
                         onStartHere = { dir ->
                             vm.openFolderAsProject(dir)
                             screen = Screen.CHAT
@@ -317,26 +365,28 @@ class MainActivity : ComponentActivity() {
                         checker = { name, text -> vm.checkText(name, text) },
                     )
                     Screen.DEVICES -> {
-                        BackHandler { screen = Screen.PROJECTS }
-                        DevicesScreen(vm, onBack = { screen = Screen.PROJECTS })
+                        BackHandler { screen = backTo }
+                        DevicesScreen(vm, onBack = { screen = backTo })
                     }
                     Screen.DIAG -> {
-                        BackHandler { screen = Screen.PROJECTS }
+                        BackHandler { screen = backTo }
                         DiagScreen(
                             vm,
-                            onBack = { screen = Screen.PROJECTS },
+                            onBack = { screen = backTo },
                             onExport = { exportBackup.launch("pocketcode-backup.json") },
                             onImport = { importBackup.launch(arrayOf("*/*")) },
                         )
                     }
                     Screen.PLUGINS -> {
-                        BackHandler { screen = Screen.PROJECTS }
-                        PluginsScreen(vm, onBack = { screen = Screen.PROJECTS })
+                        BackHandler { screen = backTo }
+                        PluginsScreen(vm, onBack = { screen = backTo })
                     }
                     Screen.SESSIONS -> {
-                        BackHandler { screen = Screen.CHAT }
-                        SessionsScreen(vm, onBack = { screen = Screen.CHAT })
+                        BackHandler { screen = backTo }
+                        SessionsScreen(vm, onBack = { screen = backTo })
                     }
+                }
+                }
                 }
             }
         }
@@ -415,19 +465,14 @@ private fun AppTheme(content: @Composable () -> Unit) {
         "light" -> false
         else -> isSystemInDarkTheme()
     }
+    val ctl = (context.applicationContext as PocketCodeApp).controller
+    val accent = com.pocketcode.ui.accentById(ctl.palette)
     val scheme = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        dark -> darkColorScheme(
-            primary = androidx.compose.ui.graphics.Color(0xFF8AB4F8),
-            primaryContainer = androidx.compose.ui.graphics.Color(0xFF1F3A5F),
-            surface = androidx.compose.ui.graphics.Color(0xFF121418),
-            background = androidx.compose.ui.graphics.Color(0xFF121418),
-        )
-        else -> lightColorScheme(
-            primary = androidx.compose.ui.graphics.Color(0xFF2F5DA8),
-            primaryContainer = androidx.compose.ui.graphics.Color(0xFFD9E5FA),
-        )
+        accent == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            val dyn = if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            if (dark && ctl.amoled) com.pocketcode.ui.amoledize(dyn) else dyn
+        }
+        else -> com.pocketcode.ui.buildScheme(dark, dark && ctl.amoled, accent ?: com.pocketcode.ui.ACCENTS.first())
     }
     val st = (context.applicationContext as PocketCodeApp).controller.settings
     val d = androidx.compose.ui.platform.LocalDensity.current

@@ -58,7 +58,7 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("Диалоги OpenCode") },
-            navigationIcon = { TextButton(onClick = onBack) { Text("Назад") } },
+            navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } },
             actions = { TextButton(onClick = { vm.refreshOcSessions() }, enabled = !vm.ocSessionsBusy) { Text("Обновить") } },
         )
     }) { pad ->
