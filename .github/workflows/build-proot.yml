@@ -23,7 +23,7 @@ jobs:
           if [ $rc -ne 0 ]; then echo "::error::CFG $(find b/build -name config.log | head -1 | xargs -r sed -n '/accepts -fstack-protector/,$p' | grep -v '^\[\|^ *$' | head -n 40 | cut -c1-200 | tr '\n' '~')"; echo "::error::$(tail -n 8 build.log | cut -c1-220 | tr '\n' '~')"; exit 1; fi
       - name: Check process_vm_readv and commit libs
         run: |
-          readelf --dyn-syms -W out/arm64-v8a/libproot.so | grep -q process_vm_readv || { echo "::error::NOVM $(cat b/build/proot-*/src/.check_process_vm.c | head -12 | tr '\n' '~') HDR $(grep -n -B3 'process_vm_readv' $ANDROID_HOME/ndk/23.2.8568313/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/bits/*.h $ANDROID_HOME/ndk/23.2.8568313/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/sys/uio.h 2>/dev/null | cut -c1-160 | head -14 | tr '\n' '~') MK $(grep -n 'CHECK_FEATURES\|check_\|CPPFLAGS' b/build/proot-*/src/GNUmakefile | head -14 | cut -c1-200 | tr '\n' '~')"; exit 1; }
+          readelf --dyn-syms -W out/arm64-v8a/libproot.so | grep -q process_vm_readv || { echo "::error::NOVM CLANGS $(grep -o 'android[0-9]*-clang' build.log | sort | uniq -c | tr '\n' ' ') API $(grep -n 'API' b/config | cut -c1-120 | tr '\n' '~') CHK $(grep -n -B1 -A1 'check_process_vm.c' build.log | cut -c1-260 | head -8 | tr '\n' '~')"; exit 1; }
           cp out/arm64-v8a/* app/src/main/jniLibs/arm64-v8a/
           cp out/armeabi-v7a/* app/src/main/jniLibs/armeabi-v7a/
           git config user.name "github-actions"
