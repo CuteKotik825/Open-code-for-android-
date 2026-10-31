@@ -7,6 +7,12 @@ jobs:
       - name: Install NDK r23
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;23.2.8568313" >/dev/null
       - uses: actions/checkout@v4
+      - name: Python 2 for waf
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python2 || sudo apt-get install -y -qq python2-minimal
+          sudo ln -sf /usr/bin/python2 /usr/local/bin/python
+          python --version
       - name: Build
         run: |
           set +e
