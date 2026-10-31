@@ -234,7 +234,7 @@ fun ChatScreen(
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (vm.items.isEmpty()) {
-                    EmptyHint(vm.workspacePath) { input = it }
+                    EmptyHint(vm.workspacePath, welcome = if (!vm.welcomeSeen) ({ WelcomeCard(vm) { runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/pocket_code_github")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } } }) else null) { input = it }
                 } else {
                     LazyColumn(
                         state = listState,
@@ -914,7 +914,7 @@ fun ChatScreen(
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun EmptyHint(workspacePath: String, onPick: (String) -> Unit) {
+private fun EmptyHint(workspacePath: String, welcome: (@Composable () -> Unit)?, onPick: (String) -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
@@ -922,6 +922,7 @@ private fun EmptyHint(workspacePath: String, onPick: (String) -> Unit) {
             .padding(24.dp),
         verticalArrangement = Arrangement.Center,
     ) {
+        if (welcome != null) { welcome(); Spacer(Modifier.height(20.dp)) }
         Text("Что будем делать?", style = MaterialTheme.typography.headlineSmall)
         Text(
             "Агент читает и правит файлы, запускает команды и работает с git прямо на телефоне.",

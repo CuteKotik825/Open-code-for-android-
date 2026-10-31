@@ -70,7 +70,7 @@ import com.pocketcode.ui.ProjectsScreen
 import com.pocketcode.ui.SessionsScreen
 import com.pocketcode.ui.SettingsScreen
 
-private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS, REMOTE, DIFF, SEARCH, HUB_PROJECT, HUB_AGENT, HUB_MORE }
+private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS, REMOTE, DIFF, SEARCH, HUB_PROJECT, HUB_AGENT, HUB_MORE, LINUX, UPDATE, BACKUP }
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
@@ -187,6 +187,8 @@ class MainActivity : ComponentActivity() {
                         dismissButton = { androidx.compose.material3.TextButton(onClick = { crashFile.delete(); crashed = false }) { Text("Закрыть") } },
                     )
                 }
+                if (!pocketApp.controller.tourDone && !crashed) com.pocketcode.ui.TourDialog(onDone = { pocketApp.controller.finishTour() })
+                else if (pocketApp.controller.updatePrompt && !crashed) com.pocketcode.ui.UpdatePromptDialog(pocketApp.controller)
                 var screen by remember { mutableStateOf(Screen.CHAT) }
                 var backTo by remember { mutableStateOf(Screen.CHAT) }
                 fun openFrom(hub: Screen, target: Screen) { backTo = hub; screen = target }
@@ -222,7 +224,9 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                 ) { pad ->
-                androidx.compose.foundation.layout.Box(Modifier.padding(pad).consumeWindowInsets(pad)) {
+                androidx.compose.foundation.layout.Column(Modifier.padding(pad).consumeWindowInsets(pad)) {
+                com.pocketcode.ui.BackgroundBanner(pocketApp.controller)
+                androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
                 if (pv != null) {
                     PreviewScreen(pv, "Превью", onBack = { vm.previewUrl = null })
                 } else when (screen) {
@@ -231,8 +235,10 @@ class MainActivity : ComponentActivity() {
                         com.pocketcode.ui.HubScreen(
                             "Проект", "Сейчас открыт: " + vm.currentProject,
                             listOf(
+                                com.pocketcode.ui.hubHeader("Что открыто"),
                                 com.pocketcode.ui.HubItem(Icons.Default.Home, "Проекты", "Список проектов, создать новый или открыть папку телефона") { openFrom(Screen.HUB_PROJECT, Screen.PROJECTS) },
                                 com.pocketcode.ui.HubItem(Icons.Default.List, "Файлы", "Смотреть и править файлы проекта") { openFrom(Screen.HUB_PROJECT, Screen.FILES) },
+                                com.pocketcode.ui.hubHeader("Работа с кодом"),
                                 com.pocketcode.ui.HubItem(Icons.Default.Search, "Поиск по проекту", "Найти текст или TODO во всех файлах") { openFrom(Screen.HUB_PROJECT, Screen.SEARCH) },
                                 com.pocketcode.ui.HubItem(Icons.Default.Edit, "Правки агента", "Что изменил агент, откат по блокам, сравнение со снимком", if (vm.changes.isNotEmpty()) "${vm.changes.size}" else null) { openFrom(Screen.HUB_PROJECT, Screen.DIFF) },
                                 com.pocketcode.ui.HubItem(Icons.Default.PlayArrow, "Терминал и запуск", "Команды в Linux, кнопки запуска проекта") { openFrom(Screen.HUB_PROJECT, Screen.TERMINAL) },
@@ -245,26 +251,37 @@ class MainActivity : ComponentActivity() {
                         com.pocketcode.ui.HubScreen(
                             "Агент", vm.profileLabel + (if (vm.openCodeMode) " · режим OpenCode" else ""),
                             listOf(
-                                com.pocketcode.ui.HubItem(Icons.Default.Person, "OpenCode: беседы и аккаунты", "Сессии, аккаунты, лимиты, запасная модель, прокси") { openFrom(Screen.HUB_AGENT, Screen.OCSESSIONS) },
-                                com.pocketcode.ui.HubItem(Icons.Default.DateRange, "История чатов", "Прошлые беседы, вернуться к любой") { openFrom(Screen.HUB_AGENT, Screen.SESSIONS) },
-                                com.pocketcode.ui.HubItem(Icons.Default.Build, "Навыки, команды, MCP", "Готовые инструкции и подключаемые инструменты") { openFrom(Screen.HUB_AGENT, Screen.PLUGINS) },
-                                com.pocketcode.ui.HubItem(Icons.Default.Info, "Что в контексте", "Что агент сейчас «помнит» и сколько это весит") { openFrom(Screen.HUB_AGENT, Screen.CONTEXT) },
+                                com.pocketcode.ui.hubHeader("Кто работает"),
+                                com.pocketcode.ui.HubItem(Icons.Default.Settings, "Модель и ключи", "Провайдеры, ключи API, выбор модели, режим работы") { openFrom(Screen.HUB_AGENT, Screen.SETTINGS) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Person, "OpenCode: беседы и аккаунты", "Сессии, аккаунты, лимиты, запасная модель, прокси, доступ вне проекта") { openFrom(Screen.HUB_AGENT, Screen.OCSESSIONS) },
                                 com.pocketcode.ui.HubItem(Icons.Default.Star, "Сравнить модели", "Один запрос сразу в нескольких моделях") { openFrom(Screen.HUB_AGENT, Screen.COMPARE) },
+                                com.pocketcode.ui.hubHeader("Что он знает и умеет"),
+                                com.pocketcode.ui.HubItem(Icons.Default.Info, "Что в контексте", "Что агент сейчас «помнит» и сколько это весит") { openFrom(Screen.HUB_AGENT, Screen.CONTEXT) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Build, "Навыки, команды, MCP", "Готовые инструкции и подключаемые инструменты") { openFrom(Screen.HUB_AGENT, Screen.PLUGINS) },
+                                com.pocketcode.ui.hubHeader("Прошлое"),
+                                com.pocketcode.ui.HubItem(Icons.Default.DateRange, "История чатов", "Прошлые беседы, вернуться к любой") { openFrom(Screen.HUB_AGENT, Screen.SESSIONS) },
                             ),
                         )
                     }
                     Screen.HUB_MORE -> {
                         BackHandler { screen = Screen.CHAT }
                         com.pocketcode.ui.HubScreen(
-                            "Ещё", "Настройки и служебные разделы",
+                            "Ещё", "Система, устройства и приложение",
                             listOf(
-                                com.pocketcode.ui.HubItem(Icons.Default.Settings, "Настройки", "Провайдеры и ключи, тема, безопасность, правила") { openFrom(Screen.HUB_MORE, Screen.SETTINGS) },
-                                com.pocketcode.ui.HubItem(Icons.Default.Refresh, "Синхронизация и пульт", "Файлы между телефонами и задачи на другой телефон") { openFrom(Screen.HUB_MORE, Screen.REMOTE) },
+                                com.pocketcode.ui.hubHeader("Система"),
+                                com.pocketcode.ui.HubItem(Icons.Default.Settings, "Настройки", "Тема и вид, безопасность, правила, общие параметры") { openFrom(Screen.HUB_MORE, Screen.SETTINGS) },
+                                com.pocketcode.ui.HubItem(Icons.Default.PlayArrow, "Среда Linux", "Установка мини-Linux, python, git, node", if (!pocketApp.controller.linuxInstalled && pocketApp.controller.linuxSupported) "не установлен" else null) { openFrom(Screen.HUB_MORE, Screen.LINUX) },
                                 com.pocketcode.ui.HubItem(Icons.Default.Phone, "Устройства", "ADB, root, подключённые устройства") { openFrom(Screen.HUB_MORE, Screen.DEVICES) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Refresh, "Синхронизация и пульт", "Файлы между телефонами и задачи на другой телефон") { openFrom(Screen.HUB_MORE, Screen.REMOTE) },
+                                com.pocketcode.ui.hubHeader("Приложение"),
+                                com.pocketcode.ui.HubItem(Icons.Default.Refresh, "Обновления", "Версия ${pocketApp.controller.currentVersion}", if (pocketApp.controller.updateInfo != null) "новая" else null) { openFrom(Screen.HUB_MORE, Screen.UPDATE) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Share, "Резервная копия", "Сохранить и восстановить настройки и ключи") { openFrom(Screen.HUB_MORE, Screen.BACKUP) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Warning, "Диагностика и расход", "Проверка, расход токенов, очистка места") { openFrom(Screen.HUB_MORE, Screen.DIAG) },
+                                com.pocketcode.ui.hubHeader("Помощь"),
+                                com.pocketcode.ui.HubItem(Icons.Default.Info, "Подсказки", "Показать обучение первого запуска ещё раз") { pocketApp.controller.restartTour() },
                                 com.pocketcode.ui.HubItem(Icons.Default.Favorite, "Поддержка", "Помощь, вопросы и идеи: группа PocketCode в Telegram") {
                                     runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/pocket_code_github"))) }
                                 },
-                                com.pocketcode.ui.HubItem(Icons.Default.Warning, "Диагностика и расход", "Проверка, расход токенов, копия настроек, очистка") { openFrom(Screen.HUB_MORE, Screen.DIAG) },
                             ),
                         )
                     }
@@ -361,7 +378,7 @@ class MainActivity : ComponentActivity() {
                     }
                     Screen.PROJECTS -> {
                         BackHandler { screen = backTo }
-                        ProjectsScreen(vm, actions, onOpenDevices = { openFrom(Screen.PROJECTS, Screen.DEVICES) }, onOpenPlugins = { openFrom(Screen.PROJECTS, Screen.PLUGINS) }, onOpenDiag = { openFrom(Screen.PROJECTS, Screen.DIAG) }, onBack = { screen = backTo })
+                        ProjectsScreen(vm, actions, onBack = { screen = backTo })
                     }
                     Screen.FILES -> FilesScreen(
                         vm.projectRoot,
@@ -379,12 +396,7 @@ class MainActivity : ComponentActivity() {
                     }
                     Screen.DIAG -> {
                         BackHandler { screen = backTo }
-                        DiagScreen(
-                            vm,
-                            onBack = { screen = backTo },
-                            onExport = { exportBackup.launch("pocketcode-backup.json") },
-                            onImport = { importBackup.launch(arrayOf("*/*")) },
-                        )
+                        DiagScreen(vm, onBack = { screen = backTo })
                     }
                     Screen.PLUGINS -> {
                         BackHandler { screen = backTo }
@@ -394,6 +406,24 @@ class MainActivity : ComponentActivity() {
                         BackHandler { screen = backTo }
                         SessionsScreen(vm, onBack = { screen = backTo })
                     }
+                    Screen.LINUX -> {
+                        BackHandler { screen = backTo }
+                        com.pocketcode.ui.LinuxScreen(pocketApp.controller, onBack = { screen = backTo })
+                    }
+                    Screen.UPDATE -> {
+                        BackHandler { screen = backTo }
+                        com.pocketcode.ui.UpdateScreen(pocketApp.controller, onBack = { screen = backTo })
+                    }
+                    Screen.BACKUP -> {
+                        BackHandler { screen = backTo }
+                        com.pocketcode.ui.BackupScreen(
+                            pocketApp.controller,
+                            onBack = { screen = backTo },
+                            onExport = { exportBackup.launch("pocketcode-backup.json") },
+                            onImport = { importBackup.launch(arrayOf("*/*")) },
+                        )
+                    }
+                }
                 }
                 }
                 }

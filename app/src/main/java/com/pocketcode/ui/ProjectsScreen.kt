@@ -46,7 +46,7 @@ class FileActions(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProjectsScreen(vm: ChatController, actions: FileActions, onOpenDevices: () -> Unit, onOpenPlugins: () -> Unit, onOpenDiag: () -> Unit, onBack: () -> Unit) {
+fun ProjectsScreen(vm: ChatController, actions: FileActions, onBack: () -> Unit) {
     var newName by remember { mutableStateOf("") }
     var tpl by remember { mutableStateOf("empty") }
     var cloneUrl by remember { mutableStateOf("") }
@@ -55,7 +55,7 @@ fun ProjectsScreen(vm: ChatController, actions: FileActions, onOpenDevices: () -
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Проекты и файлы") },
+                title = { Text("Проекты") },
                 navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(com.pocketcode.ui.AppIcons.Back, contentDescription = "Назад") } },
             )
         },
@@ -240,60 +240,6 @@ fun ProjectsScreen(vm: ChatController, actions: FileActions, onOpenDevices: () -
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Открыть папку телефона как проект") }
 
-            // ----- Linux -----
-            Text("Среда Linux", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
-            if (!vm.linuxSupported) {
-                Text("На этом телефоне Linux-среда недоступна (нужен 64- или 32-битный ARM).", style = MaterialTheme.typography.bodySmall)
-            } else {
-                Text(
-                    if (vm.linuxInstalled) {
-                        "Alpine Linux установлен. Агент выполняет bash внутри него: настоящий sh, apk, свои пакеты. " +
-                            "Папка проекта доступна как /work."
-                    } else {
-                        "Скачает Alpine Linux (около 4 МБ) и запустит его через proot. Тогда в bash можно ставить " +
-                            "python, git, node, gcc командой apk add."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                if (!vm.linuxInstalled) {
-                    Button(
-                        onClick = { vm.installLinux() },
-                        enabled = !vm.linuxBusy && !vm.running,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(if (vm.linuxBusy) "Подожди…" else "Установить Linux") }
-                } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = vm.linuxEnabled,
-                            onClick = { vm.chooseLinuxShell(true) },
-                            label = { Text("bash в Linux") },
-                        )
-                        FilterChip(
-                            selected = !vm.linuxEnabled,
-                            onClick = { vm.chooseLinuxShell(false) },
-                            label = { Text("bash Android") },
-                        )
-                    }
-                    Text(
-                        if (vm.linuxEnabled) {
-                            "Сейчас команды агента идут в настоящий Linux: можно ставить программы (apk add), есть python, git, node."
-                        } else {
-                            "Сейчас команды идут в простую оболочку Android: только базовые команды, без python, git и node."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    OutlinedButton(
-                        onClick = { vm.installLinuxTools() },
-                        enabled = !vm.linuxBusy && !vm.running,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(if (vm.linuxBusy) "Подожди…" else "Поставить python, git, node") }
-                    TextButton(onClick = { vm.removeLinux() }, enabled = !vm.linuxBusy && !vm.running) {
-                        Text("Удалить Linux")
-                    }
-                }
-                vm.linuxStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            }
-
             // ----- справка -----
             var showHelp by remember { mutableStateOf(false) }
             TextButton(onClick = { showHelp = !showHelp }, modifier = Modifier.padding(top = 8.dp)) {
@@ -317,10 +263,6 @@ fun ProjectsScreen(vm: ChatController, actions: FileActions, onOpenDevices: () -
                     }
                 }
             }
-
-            OutlinedButton(onClick = onOpenDevices, modifier = Modifier.fillMaxWidth()) { Text("Устройства (ADB) и root") }
-            OutlinedButton(onClick = onOpenPlugins, modifier = Modifier.fillMaxWidth()) { Text("Навыки, команды, плагины") }
-            OutlinedButton(onClick = onOpenDiag, modifier = Modifier.fillMaxWidth()) { Text("Диагностика, расход, копия настроек") }
 
             // ----- создать и клонировать -----
             Text("Новый проект", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))

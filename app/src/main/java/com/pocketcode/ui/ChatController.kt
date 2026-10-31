@@ -269,6 +269,11 @@ class ChatController(
     var linuxStatus by mutableStateOf<String?>(null)
         private set
 
+    /** Итог фоновой операции (установка Linux): показывается баннером на любом экране, пока не закроют. */
+    var doneNote by mutableStateOf<String?>(null)
+        private set
+    fun clearDoneNote() { doneNote = null }
+
     fun chooseLinuxShell(v: Boolean) {
         if (running) {
             linuxStatus = "Дождись окончания работы агента или нажми «Стоп»."
@@ -292,9 +297,11 @@ class ChatController(
                 runCatching { linuxEnv.configureGit(settings.gitName, settings.gitEmail, settings.githubToken) }
                 agent = null
                 linuxStatus = r + ". Теперь bash работает в Linux."
+                doneNote = "Linux установлен. Теперь команды агента идут в настоящий Linux."
             } catch (e: Exception) {
                 linuxInstalled = false
                 linuxStatus = "Ошибка установки: ${e.message}"
+                doneNote = "Не удалось установить Linux. Подробности: Ещё → Среда Linux."
             } finally {
                 linuxBusy = false
             }
@@ -990,27 +997,48 @@ class ChatController(
     var updateBusy by mutableStateOf(false)
         private set
 
-    fun checkUpdate() {
+    /** Скачанный, но ещё не установленный APK: установку пользователь запускает кнопкой, когда ему удобно. */
+    var updateReady by mutableStateOf<File?>(null)
+        private set
+
+    /** true — при запуске нашли новую сборку и надо предложить обновиться. */
+    var updatePrompt by mutableStateOf(false)
+        private set
+    fun dismissUpdatePrompt() { updatePrompt = false }
+
+    var autoUpdate by mutableStateOf(settingsStore.rawGet("autoUpd") != "0")
+        private set
+    fun setAutoUpdateValue(v: Boolean) { autoUpdate = v; settingsStore.rawPut("autoUpd", if (v) "1" else "0") }
+
+    /** silent — проверка при запуске: ошибки и «последняя версия» не показываем. */
+    fun checkUpdate(silent: Boolean = false) {
         if (updateBusy) return
         updateBusy = true
-        updateStatus = "Проверяю…"
+        if (!silent) updateStatus = "Проверяю…"
         scope.launch {
             try {
                 val info = updater.latest(settings.githubToken)
                 if (info != null && info.build > updater.currentBuild()) {
                     updateInfo = info
                     updateStatus = "Доступна сборка ${info.build}: ${info.notes.take(150)}"
+                    if (silent) updatePrompt = true
                 } else {
                     updateInfo = null
-                    updateStatus = "У тебя последняя версия."
+                    if (!silent) updateStatus = "У тебя последняя версия."
                 }
             } catch (e: Exception) {
-                updateInfo = null
-                updateStatus = e.message ?: "Не удалось проверить обновления"
+                if (!silent) {
+                    updateInfo = null
+                    updateStatus = e.message ?: "Не удалось проверить обновления"
+                }
             } finally {
                 updateBusy = false
             }
         }
+    }
+
+    init {
+        if (!isTab && autoUpdate) checkUpdate(silent = true)
     }
 
     fun installUpdate() {
@@ -1019,8 +1047,10 @@ class ChatController(
         updateBusy = true
         scope.launch {
             try {
+                updateStatus = "Скачиваю обновление…"
                 val apk = updater.download(info, settings.githubToken) { msg -> scope.launch { updateStatus = msg } }
-                updateStatus = updater.install(apk)
+                updateReady = apk
+                updateStatus = "Сборка ${info.build} скачана. Нажми «Установить», когда будет удобно."
             } catch (e: Exception) {
                 updateStatus = "Не удалось обновиться: ${e.message}"
             } finally {
@@ -1028,6 +1058,23 @@ class ChatController(
             }
         }
     }
+
+    /** Открывает системный установщик для уже скачанного обновления. */
+    fun applyUpdate() {
+        val apk = updateReady ?: return
+        updateStatus = runCatching { updater.install(apk) }.getOrElse { "Не удалось открыть установщик: ${it.message}" }
+    }
+
+    // ---------- подсказки первого запуска ----------
+
+    var tourDone by mutableStateOf(settingsStore.rawGet("tourDone") == "1")
+        private set
+    fun finishTour() { tourDone = true; settingsStore.rawPut("tourDone", "1") }
+    fun restartTour() { tourDone = false; settingsStore.rawPut("tourDone", "0") }
+
+    var welcomeSeen by mutableStateOf(settingsStore.rawGet("welcomeSeen") == "1")
+        private set
+    fun hideWelcome() { welcomeSeen = true; settingsStore.rawPut("welcomeSeen", "1") }
 
     // ---------- уточнения и очередь ----------
 
@@ -3652,6 +3699,7 @@ class ChatController(
     }
 
     fun send(text: String, auto: Boolean = false) {
+        if (!welcomeSeen) hideWelcome()
         val trimmed = text.trim()
         if ((trimmed.isEmpty() && pendingImages.isEmpty()) || running) return
         if (openCodeMode && trimmed.isNotEmpty() && !trimmed.startsWith("/")) { sendViaOpenCode(mentionExpand(extensions.expand(trimmed) ?: trimmed), shown = trimmed); return }

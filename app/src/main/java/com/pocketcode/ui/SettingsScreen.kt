@@ -535,26 +535,6 @@ fun SettingsScreen(
                 Switch(checked = vm.appLock, onCheckedChange = { vm.setAppLockValue(it) })
             }
 
-            Text("Обновления", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
-            Text("Установлено: ${vm.currentVersion}", style = MaterialTheme.typography.bodyMedium)
-            Text(
-                "Каждая сборка из GitHub выкладывается в релизы. Если репозиторий публичный, токен не нужен. Для приватного нужен сохранённый GitHub-токен с правом Contents: read.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            OutlinedButton(
-                onClick = { vm.checkUpdate() },
-                enabled = !vm.updateBusy,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (vm.updateBusy) "Подожди…" else "Проверить обновления") }
-            vm.updateStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            if (vm.updateInfo != null) {
-                Button(
-                    onClick = { vm.installUpdate() },
-                    enabled = !vm.updateBusy,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Скачать и установить") }
-            }
-
             Text("Все изменения сохраняются автоматически.", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(24.dp))
         }

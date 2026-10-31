@@ -25,7 +25,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 
-data class HubItem(val icon: ImageVector, val title: String, val about: String, val badge: String? = null, val onClick: () -> Unit)
+data class HubItem(val icon: ImageVector, val title: String, val about: String, val badge: String? = null, val header: Boolean = false, val onClick: () -> Unit = {})
+
+/** Заголовок группы внутри раздела. */
+fun hubHeader(text: String) = HubItem(AppIcons.Chevron, text, "", null, true)
 
 /** Раздел нижней панели: крупные карточки с пояснениями, куда это ведёт. */
 @Composable
@@ -53,6 +56,13 @@ fun HubScreen(title: String, subtitle: String, items: List<HubItem>) {
             }
         }
         items(items) { it ->
+            if (it.header) {
+                Text(
+                    it.title.uppercase(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 6.dp, top = 10.dp),
+                )
+                return@items
+            }
             Card(
                 onClick = it.onClick,
                 shape = RoundedCornerShape(18.dp),

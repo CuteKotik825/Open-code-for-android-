@@ -30,10 +30,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 
-/** Самопроверка, отчёт об ошибках, расход токенов и резервная копия настроек. */
+/** Самопроверка, отчёт об ошибках и расход токенов. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DiagScreen(vm: ChatController, onBack: () -> Unit, onExport: () -> Unit, onImport: () -> Unit) {
+fun DiagScreen(vm: ChatController, onBack: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     var priceIn by remember { mutableStateOf(vm.settings.priceIn.takeIf { it > 0 }?.toString() ?: "") }
@@ -171,24 +171,6 @@ fun DiagScreen(vm: ChatController, onBack: () -> Unit, onExport: () -> Unit, onI
             OutlinedButton(onClick = {
                 runCatching { ctxSupport.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/pocket_code_github")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
             }) { Text("Написать в поддержку (Telegram)") }
-            Text("Резервная копия настроек", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Профили с ключами, правила, хуки, MCP, расписания, устройства и общие навыки одним файлом. Для переноса на другой телефон. " +
-                    "Файл содержит секреты, не отправляй его никому.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            androidx.compose.material3.OutlinedTextField(
-                value = vm.backupPassword, onValueChange = { vm.backupPassword = it }, singleLine = true,
-                label = { Text("Пароль для шифрования (необязательно)") },
-                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Text("С паролем файл шифруется (AES-256). Без пароля при восстановлении не откроется, не забудь его.", style = MaterialTheme.typography.labelSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onExport) { Text("Сохранить копию") }
-                OutlinedButton(onClick = onImport) { Text("Восстановить") }
-            }
-            vm.backupMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }
