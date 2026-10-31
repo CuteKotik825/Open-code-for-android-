@@ -261,7 +261,7 @@ class MainActivity : ComponentActivity() {
                                 com.pocketcode.ui.HubItem(Icons.Default.Settings, "Настройки", "Провайдеры и ключи, тема, безопасность, правила") { openFrom(Screen.HUB_MORE, Screen.SETTINGS) },
                                 com.pocketcode.ui.HubItem(Icons.Default.Refresh, "Синхронизация и пульт", "Файлы между телефонами и задачи на другой телефон") { openFrom(Screen.HUB_MORE, Screen.REMOTE) },
                                 com.pocketcode.ui.HubItem(Icons.Default.Phone, "Устройства", "ADB, root, подключённые устройства") { openFrom(Screen.HUB_MORE, Screen.DEVICES) },
-                                com.pocketcode.ui.HubItem(Icons.Default.Favorite, "Сообщество в Telegram", "Вопросы, идеи и новости о PocketCode") {
+                                com.pocketcode.ui.HubItem(Icons.Default.Favorite, "Поддержка", "Помощь, вопросы и идеи: группа PocketCode в Telegram") {
                                     runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/pocket_code_github"))) }
                                 },
                                 com.pocketcode.ui.HubItem(Icons.Default.Warning, "Диагностика и расход", "Проверка, расход токенов, копия настроек, очистка") { openFrom(Screen.HUB_MORE, Screen.DIAG) },

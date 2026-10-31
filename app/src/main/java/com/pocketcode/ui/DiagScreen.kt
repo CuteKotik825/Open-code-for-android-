@@ -165,6 +165,12 @@ fun DiagScreen(vm: ChatController, onBack: () -> Unit, onExport: () -> Unit, onI
                 TextButton(onClick = { vm.resetUsage() }) { Text("Сбросить счётчики") }
             }
 
+            val ctxSupport = androidx.compose.ui.platform.LocalContext.current
+            Text("Поддержка", style = MaterialTheme.typography.titleMedium)
+            Text("Что-то не работает или нужна помощь? Скопируй отчёт выше и напиши в группу.", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = {
+                runCatching { ctxSupport.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/pocket_code_github")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            }) { Text("Написать в поддержку (Telegram)") }
             Text("Резервная копия настроек", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Профили с ключами, правила, хуки, MCP, расписания, устройства и общие навыки одним файлом. Для переноса на другой телефон. " +

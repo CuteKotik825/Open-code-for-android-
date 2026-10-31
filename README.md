@@ -55,20 +55,6 @@ gradle :app:assembleDebug     # нужны JDK 17 и Android SDK
 
 Или без ПК: **Actions → Build APK → Run workflow**, готовый APK появится в разделе Releases.
 
-<details>
-<summary>Подпись своим ключом</summary>
-
-По умолчанию сборки подписаны общим ключом `app/debug.keystore` (он лежит в репозитории, пароль `android`), поэтому он подходит только для личного пользования. Для своих сборок создай свой ключ:
-
-```bash
-keytool -genkeypair -v -keystore release.jks -alias pocketcode -keyalg RSA -keysize 4096 -validity 36500
-base64 -w0 release.jks     # результат положи в секрет PC_KEYSTORE_B64
-```
-
-В **Settings → Secrets and variables → Actions** добавь `PC_KEYSTORE_B64`, `PC_STORE_PASS`, `PC_KEY_ALIAS`, `PC_KEY_PASS`. Дальше CI подпишет APK твоим ключом. Файл `release.jks` и пароли храни отдельно: потеряешь ключ — обновить приложение у пользователей будет нельзя. Подпись менять нельзя «на ходу»: после смены ключа приложение надо переустановить (настройки сохрани через «Диагностика → Копия настроек»).
-
-</details>
-
 ## Известные ограничения
 
 - Проверено на реальных телефонах автора, но не на всех прошивках. Если proot не запускается, пришли отчёт из «Диагностики».
