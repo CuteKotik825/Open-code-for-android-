@@ -25,7 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 
-data class HubItem(val icon: ImageVector, val title: String, val about: String, val onClick: () -> Unit, val badge: String? = null)
+data class HubItem(val icon: ImageVector, val title: String, val about: String, val badge: String? = null, val onClick: () -> Unit)
 
 /** Раздел нижней панели: крупные карточки с пояснениями, куда это ведёт. */
 @Composable

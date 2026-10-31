@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
@@ -138,6 +139,7 @@ class MainActivity : ComponentActivity() {
             if (uri != null) controller.exportMarkdown(uri)
         }
 
+    @androidx.compose.foundation.layout.ExperimentalLayoutApi
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleIntent(intent)
@@ -205,7 +207,7 @@ class MainActivity : ComponentActivity() {
                                 Triple("Агент", com.pocketcode.ui.AppIcons.Bolt, Screen.HUB_AGENT),
                                 Triple("Ещё", com.pocketcode.ui.AppIcons.Grid, Screen.HUB_MORE),
                             ).forEachIndexed { i, (label, icon, target) ->
-                                androidx.compose.material3.NavigationBarItem(
+                                NavigationBarItem(
                                     selected = section == i,
                                     onClick = { backTo = Screen.CHAT; screen = target },
                                     icon = { androidx.compose.material3.Icon(icon, contentDescription = label) },
@@ -228,7 +230,7 @@ class MainActivity : ComponentActivity() {
                                 com.pocketcode.ui.HubItem(Icons.Default.Home, "Проекты", "Список проектов, создать новый или открыть папку телефона") { openFrom(Screen.HUB_PROJECT, Screen.PROJECTS) },
                                 com.pocketcode.ui.HubItem(Icons.Default.List, "Файлы", "Смотреть и править файлы проекта") { openFrom(Screen.HUB_PROJECT, Screen.FILES) },
                                 com.pocketcode.ui.HubItem(Icons.Default.Search, "Поиск по проекту", "Найти текст или TODO во всех файлах") { openFrom(Screen.HUB_PROJECT, Screen.SEARCH) },
-                                com.pocketcode.ui.HubItem(Icons.Default.Edit, "Правки агента", "Что изменил агент, откат по блокам, сравнение со снимком", { openFrom(Screen.HUB_PROJECT, Screen.DIFF) }, if (vm.changes.isNotEmpty()) "${vm.changes.size}" else null),
+                                com.pocketcode.ui.HubItem(Icons.Default.Edit, "Правки агента", "Что изменил агент, откат по блокам, сравнение со снимком", if (vm.changes.isNotEmpty()) "${vm.changes.size}" else null) { openFrom(Screen.HUB_PROJECT, Screen.DIFF) },
                                 com.pocketcode.ui.HubItem(Icons.Default.PlayArrow, "Терминал и запуск", "Команды в Linux, кнопки запуска проекта") { openFrom(Screen.HUB_PROJECT, Screen.TERMINAL) },
                                 com.pocketcode.ui.HubItem(Icons.Default.Share, "Git и GitHub", "Коммиты, ветки, PR, проверки сборки") { openFrom(Screen.HUB_PROJECT, Screen.GIT) },
                             ),
