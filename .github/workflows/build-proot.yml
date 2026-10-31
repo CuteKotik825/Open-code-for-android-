@@ -18,7 +18,7 @@ jobs:
           set +e
           bash -e -x .github/build_proot.sh > build.log 2>&1
           rc=$?
-          if [ $rc -ne 0 ]; then echo "::error::CFG $(find b/build -name config.log | head -1 | xargs -r grep -n -i 'checking\|answer' | tail -n 12 | cut -c1-200 | tr '\n' '~')"; echo "::error::$(tail -n 8 build.log | cut -c1-220 | tr '\n' '~')"; exit 1; fi
+          if [ $rc -ne 0 ]; then echo "::error::CFG $(find b/build -name config.log | head -1 | xargs -r sed -n '/accepts -fstack-protector/,$p' | grep -v '^\[\|^ *$' | head -n 40 | cut -c1-200 | tr '\n' '~')"; echo "::error::$(tail -n 8 build.log | cut -c1-220 | tr '\n' '~')"; exit 1; fi
       - uses: actions/upload-artifact@v4
         with:
           name: proot-api24
