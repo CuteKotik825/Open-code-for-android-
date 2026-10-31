@@ -28,7 +28,7 @@ data class UpdateInfo(val build: Int, val title: String, val notes: String, val 
  */
 class Updater(private val context: Context) {
     companion object {
-        const val REPO = "CuteKotik825/Open-code-for-android-"
+        const val REPO = "CuteKotik825/Open-code-for-android"
     }
 
     private val client = OkHttpClient.Builder()

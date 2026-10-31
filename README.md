@@ -5,13 +5,13 @@
 **Кодинг-агент, который живёт в твоём телефоне.**
 Пишешь задачу в чате, а агент сам читает и правит файлы, запускает команды, Python и git. ПК не нужен.
 
-[![Сборка](https://github.com/CuteKotik825/Open-code-for-android-/actions/workflows/build.yml/badge.svg)](https://github.com/CuteKotik825/Open-code-for-android-/actions/workflows/build.yml)
-[![Релиз](https://img.shields.io/github/v/release/CuteKotik825/Open-code-for-android-?include_prereleases&label=%D1%81%D0%B1%D0%BE%D1%80%D0%BA%D0%B0)](https://github.com/CuteKotik825/Open-code-for-android-/releases/latest)
+[![Сборка](https://github.com/CuteKotik825/Open-code-for-android/actions/workflows/build.yml/badge.svg)](https://github.com/CuteKotik825/Open-code-for-android/actions/workflows/build.yml)
+[![Релиз](https://img.shields.io/github/v/release/CuteKotik825/Open-code-for-android?include_prereleases&label=%D1%81%D0%B1%D0%BE%D1%80%D0%BA%D0%B0)](https://github.com/CuteKotik825/Open-code-for-android/releases/latest)
 [![Лицензия: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Android 8+](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)
 [![Telegram](https://img.shields.io/badge/Telegram-чат-26A5E4?logo=telegram&logoColor=white)](https://t.me/pocket_code_github)
 
-[**Скачать APK**](https://github.com/CuteKotik825/Open-code-for-android-/releases/latest) · [**Чат в Telegram**](https://t.me/pocket_code_github) · [Сообщить об ошибке](https://github.com/CuteKotik825/Open-code-for-android-/issues/new/choose)
+[**Скачать APK**](https://github.com/CuteKotik825/Open-code-for-android/releases/latest) · [**Чат в Telegram**](https://t.me/pocket_code_github) · [Сообщить об ошибке](https://github.com/CuteKotik825/Open-code-for-android/issues/new/choose)
 
 </div>
 
@@ -36,7 +36,7 @@ PocketCode работает как OpenCode, Claude Code или Codex, толь�
 
 ## Установка
 
-1. Открой [**Releases**](https://github.com/CuteKotik825/Open-code-for-android-/releases/latest) на телефоне и скачай `PocketCode.apk`.
+1. Открой [**Releases**](https://github.com/CuteKotik825/Open-code-for-android/releases/latest) на телефоне и скачай `PocketCode.apk`.
 2. Разреши установку из этого источника и поставь приложение.
 3. **Ещё → Настройки**: выбери провайдера и вставь API-ключ.
 4. Нажми на название проекта вверху, создай проект или открой папку телефона и напиши задачу, например: «найди, где обрабатывается вход, и добавь проверку пустого пароля».
@@ -48,8 +48,8 @@ PocketCode работает как OpenCode, Claude Code или Codex, толь�
 ## Как собрать самому
 
 ```bash
-git clone https://github.com/CuteKotik825/Open-code-for-android-.git
-cd Open-code-for-android-
+git clone https://github.com/CuteKotik825/Open-code-for-android.git
+cd Open-code-for-android
 gradle :app:assembleDebug     # нужны JDK 17 и Android SDK
 ```
 
@@ -80,7 +80,7 @@ app/src/main/java/com/pocketcode/
 
 ## Сообщество
 
-Вопросы, идеи и новости: **[t.me/pocket_code_github](https://t.me/pocket_code_github)**. Баги и предложения принимаются в [Issues](https://github.com/CuteKotik825/Open-code-for-android-/issues).
+Вопросы, идеи и новости: **[t.me/pocket_code_github](https://t.me/pocket_code_github)**. Баги и предложения принимаются в [Issues](https://github.com/CuteKotik825/Open-code-for-android/issues).
 
 ## Лицензия
 
