@@ -1947,7 +1947,7 @@ class ChatController(
 
     private val backupPrefKeys = listOf(
         "syncRepo", "syncProjects", "syncInterval", "syncHost", "ocFallback", "ocAutoSwitch", "ocAutoCompact", "ocRateRetryMin",
-        "ocBudget", "ocFresh", "ocModel", "ocCards", "themeMode", "palette", "amoled", "templates", "stars", "ocPins", "ocTitles", "bigInput",
+        "ocBudget", "ocFresh", "ocExt", "ocModel", "ocCards", "themeMode", "palette", "amoled", "templates", "stars", "ocPins", "ocTitles", "bigInput",
     )
 
     private fun cryptKey(password: String, salt: ByteArray): javax.crypto.spec.SecretKeySpec {
@@ -2973,6 +2973,9 @@ class ChatController(
         if (v.isEmpty()) return ""
         return "export HTTPS_PROXY='$v' HTTP_PROXY='$v' https_proxy='$v' http_proxy='$v'; "
     }
+    var ocExternalAccess by mutableStateOf(settingsStore.rawGet("ocExt") == "1")
+        private set
+    fun setOcExternalAccessValue(v: Boolean) { ocExternalAccess = v; settingsStore.rawPut("ocExt", if (v) "1" else "0") }
     fun setOcFallbackValue(v: String) { ocFallbackModel = v.trim(); settingsStore.rawPut("ocFallback", v.trim()) }
     private var ocFbUsed = false
 
@@ -3437,7 +3440,8 @@ class ChatController(
         val q = "'" + sentPrompt.replace("'", "'\\''") + "'"
         val model = ocModel.trim().takeIf { it.isNotEmpty() }?.let { " -m '" + it.replace("'", "") + "'" } ?: ""
         // /tmp разрешён всегда (временные файлы), остальное вне проекта OpenCode по-прежнему отклоняет
-        val perm = "export OPENCODE_PERMISSION='{\"external_directory\":{\"/tmp\":\"allow\",\"/tmp/**\":\"allow\"}}'; "
+        val perm = if (ocExternalAccess) "export OPENCODE_PERMISSION='{\"external_directory\":\"allow\"}'; "
+            else "export OPENCODE_PERMISSION='{\"external_directory\":{\"/tmp\":\"allow\",\"/tmp/**\":\"allow\"}}'; "
         val resume = when {
             ocSessionId != null -> " --session '" + ocSessionId!!.replace("'", "") + "'"
             ocContinue || isRetry -> " --continue"

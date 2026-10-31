@@ -161,6 +161,13 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                         }
                     }
                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Доступ OpenCode ко всему в Linux (вне папки проекта)", style = MaterialTheme.typography.bodySmall)
+                            Text("Без этого он не может читать /proc, /etc и др. и пишет «auto-rejecting». Linux в приложении изолирован: Android-системы и чужих приложений он всё равно не видит.", style = MaterialTheme.typography.labelSmall)
+                        }
+                        androidx.compose.material3.Switch(checked = vm.ocExternalAccess, onCheckedChange = { vm.setOcExternalAccessValue(it) })
+                    }
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         Text("Каждый новый запрос начинает новую беседу (без длинной истории, меньше риск лимитов)", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                         androidx.compose.material3.Switch(checked = vm.ocFreshEach, onCheckedChange = { vm.setOcFreshEachValue(it) })
                     }
