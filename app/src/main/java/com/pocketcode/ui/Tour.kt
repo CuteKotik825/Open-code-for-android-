@@ -32,6 +32,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -44,10 +48,7 @@ object TourAnchors {
 }
 
 fun Modifier.tourAnchor(key: String): Modifier =
-    this.androidx_onPlaced { TourAnchors.rects[key] = it }
-
-private fun Modifier.androidx_onPlaced(f: (androidx.compose.ui.geometry.Rect) -> Unit): Modifier =
-    this.then(androidx.compose.ui.layout.onGloballyPositioned { f(it.boundsInRoot()) })
+    this.onGloballyPositioned { TourAnchors.rects[key] = it.boundsInRoot() }
 
 private class TourStep(val anchor: String?, val title: String, val body: String)
 
@@ -144,10 +145,10 @@ fun TourOverlay(onDone: () -> Unit) {
 }
 
 private fun Modifier.androidx_root(f: (Pair<androidx.compose.ui.geometry.Offset, androidx.compose.ui.unit.IntSize>) -> Unit): Modifier =
-    this.then(androidx.compose.ui.layout.onGloballyPositioned { f(it.positionInRoot() to it.size) })
+    this.onGloballyPositioned { f(it.positionInRoot() to it.size) }
 
 private fun Modifier.androidx_swallowTouches(): Modifier =
-    this.then(androidx.compose.ui.input.pointer.pointerInput(Unit) { androidx.compose.foundation.gestures.detectTapGestures { } })
+    this.pointerInput(Unit) { detectTapGestures { } }
 
 /** Полоса сверху на любом экране: идёт установка Linux или скачивание обновления, либо есть итог. */
 @Composable
