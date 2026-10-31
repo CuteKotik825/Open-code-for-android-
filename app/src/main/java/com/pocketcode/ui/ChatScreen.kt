@@ -155,7 +155,7 @@ fun ChatScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    TextButton(onClick = onOpenProjects) {
+                    TextButton(onClick = onOpenProjects, modifier = Modifier.tourAnchor("project")) {
                         Icon(AppIcons.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(vm.currentProject, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -457,7 +457,7 @@ fun ChatScreen(
                 }
             }
             Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+                Modifier.fillMaxWidth().tourAnchor("quick").horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 if (vm.running) androidx.compose.material3.AssistChip(onClick = { vm.stop() }, label = { Text("Остановить") })
@@ -470,7 +470,7 @@ fun ChatScreen(
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 shape = RoundedCornerShape(28.dp),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp).tourAnchor("input"),
             ) {
                 Row(Modifier.padding(start = 4.dp, end = 4.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.Bottom) {
                     Column {

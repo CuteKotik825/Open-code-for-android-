@@ -148,6 +148,23 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                         value = px, onValueChange = { px = it; vm.setNetProxyValue(it) }, singleLine = true,
                         label = { Text("HTTP-прокси для OpenCode и терминала (http://хост:порт)") }, modifier = Modifier.fillMaxWidth(),
                     )
+                    Text("Загрузка бесед. Если список или беседа открываются слишком долго, выбери значение поменьше:", style = MaterialTheme.typography.bodySmall)
+                    Text("Сколько бесед в списке:", style = MaterialTheme.typography.labelMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(20, 50, 100, 200).forEach { v ->
+                            androidx.compose.material3.FilterChip(selected = vm.ocListLimit == v, onClick = { vm.setOcListLimitValue(v); vm.refreshOcSessions() }, label = { Text("$v") })
+                        }
+                    }
+                    Text("Сколько последних сообщений показывать при открытии беседы:", style = MaterialTheme.typography.labelMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(10, 20, 60, 150).forEach { v ->
+                            androidx.compose.material3.FilterChip(selected = vm.ocShowLimit == v, onClick = { vm.setOcShowLimitValue(v) }, label = { Text("$v") })
+                        }
+                    }
+                    Text(
+                        "Беседы OpenCode бывают огромными, и телефону приходится вытаскивать и разбирать всю беседу целиком. Чем меньше число, тем меньше текста он разбирает и показывает, поэтому открывается быстрее. Сам OpenCode помнит всю беседу независимо от этого числа: лимит влияет только на то, что видно в чате.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
                     Text("Повтор после 429 (слишком частые запросы) через:", style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(1, 5, 15, 30).forEach { m ->

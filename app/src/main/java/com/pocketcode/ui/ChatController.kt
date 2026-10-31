@@ -1994,7 +1994,7 @@ class ChatController(
 
     private val backupPrefKeys = listOf(
         "syncRepo", "syncProjects", "syncInterval", "syncHost", "ocFallback", "ocAutoSwitch", "ocAutoCompact", "ocRateRetryMin",
-        "ocBudget", "ocFresh", "ocExtMode", "ocModel", "ocCards", "themeMode", "palette", "amoled", "templates", "stars", "ocPins", "ocTitles", "bigInput",
+        "ocBudget", "ocListLim", "ocShowLim", "ocFresh", "ocExtMode", "ocModel", "ocCards", "themeMode", "palette", "amoled", "templates", "stars", "ocPins", "ocTitles", "bigInput",
     )
 
     private fun cryptKey(password: String, salt: ByteArray): javax.crypto.spec.SecretKeySpec {
@@ -2311,6 +2311,13 @@ class ChatController(
         return java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(ms))
     }
 
+    /** Сколько символов вывода беседы разбирать: чем меньше лимит сообщений, тем меньше разбираем. */
+    private fun ocParseCap(): Int = when {
+        ocShowLimit <= 20 -> 400_000
+        ocShowLimit <= 60 -> 1_000_000
+        else -> 2_000_000
+    }
+
     fun refreshOcSessions() {
         if (ocSessionsBusy) return
         if (!linuxActive) { ocSessionsMsg = "Нужен включённый Linux с установленным OpenCode."; return }
@@ -2318,7 +2325,7 @@ class ChatController(
         ocSessionsMsg = "Загружаю список…"
         scope.launch {
             val raw = try {
-                ocViaFile("opencode session list --format json -n 100", "list", 120)
+                ocViaFile("opencode session list --format json -n $ocListLimit", "list", 120)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -2367,7 +2374,7 @@ class ChatController(
         ocSessionId = s.id
         ocSessionTitle = s.title
         ocSessionsBusy = true
-        ocSessionsMsg = "Открываю беседу…"
+        ocSessionsMsg = "Открываю беседу… Если грузится слишком долго, уменьши «сколько сообщений показывать» в настройках OpenCode."
         scope.launch {
             val raw = try {
                 ocExport(s.id, 180)
@@ -2381,17 +2388,17 @@ class ChatController(
             // Разбор тяжёлый, а беседа может быть огромной: делаем это вне главного потока и берём только хвост
             val found = withContext(Dispatchers.Default) {
                 try {
-                    if (raw.length > 2_000_000) throw IllegalStateException("big")
+                    if (raw.length > ocParseCap()) throw IllegalStateException("big")
                     val texts = mutableListOf<Pair<String?, String>>()
                     collectTexts(kotlinx.serialization.json.Json.parseToJsonElement(jsonStart(raw)), null, texts)
                     texts
                 } catch (e: Throwable) {
-                    val t = scanTexts(if (raw.length > 1_500_000) raw.takeLast(1_500_000) else raw)
+                    val t = scanTexts(if (raw.length > ocParseCap() * 3 / 4) raw.takeLast(ocParseCap() * 3 / 4) else raw)
                     if (t.isEmpty()) parseNote = "Не разобрал вывод opencode export (${e.javaClass.simpleName}). Размер ${raw.length} симв."
                     t
                 }
             }
-            for ((role, text) in found.takeLast(60)) {
+            for ((role, text) in found.takeLast(ocShowLimit)) {
                 val tx = Secrets.mask(if (text.length > 6000) text.take(6000) + "\n…(обрезано)" else text)
                 shown += if (role == "user") UiItem.User(tx, 0) else UiItem.Assistant(tx)
             }
@@ -2656,6 +2663,16 @@ class ChatController(
     }
 
     // ---------- помощь при ошибках, бюджет, отметки, запуск проекта, черновик ----------
+    /** Сколько бесед OpenCode запрашивать в списке. Меньше — список грузится быстрее. */
+    var ocListLimit by mutableIntStateOf(settingsStore.rawGet("ocListLim")?.toIntOrNull() ?: 100)
+        private set
+    fun setOcListLimitValue(v: Int) { ocListLimit = v; settingsStore.rawPut("ocListLim", v.toString()) }
+
+    /** Сколько последних сообщений беседы показывать в чате при её открытии. Меньше — открывается быстрее. */
+    var ocShowLimit by mutableIntStateOf(settingsStore.rawGet("ocShowLim")?.toIntOrNull() ?: 60)
+        private set
+    fun setOcShowLimitValue(v: Int) { ocShowLimit = v; settingsStore.rawPut("ocShowLim", v.toString()) }
+
     var ocDailyBudget by mutableIntStateOf(settingsStore.rawGet("ocBudget")?.toIntOrNull() ?: 0)
         private set
     fun setOcDailyBudgetValue(v: Int) { ocDailyBudget = v; settingsStore.rawPut("ocBudget", v.toString()) }

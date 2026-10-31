@@ -51,6 +51,7 @@ fun SettingsScreen(
     onResetContext: () -> Unit,
     onOpenCompare: () -> Unit,
     onBack: () -> Unit,
+    models: Boolean = false,
 ) {
     var provider by remember { mutableStateOf(initial.provider) }
     var baseUrl by remember { mutableStateOf(initial.baseUrl) }
@@ -130,7 +131,7 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (savedMark) "Настройки · сохранено" else "Настройки") },
+                title = { Text((if (models) "Модель и ключи" else "Настройки") + (if (savedMark) " · сохранено" else "")) },
                 navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(com.pocketcode.ui.AppIcons.Back, contentDescription = "Назад") } },
             )
         },
@@ -143,6 +144,7 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (models) {
             Text("Ключи и модели", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Можно хранить несколько ключей (например, рабочий и личный) и переключаться между ними. Подпись нужна только тебе.",
@@ -299,7 +301,9 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
 
-            Text("Экономия и вид", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            }
+            if (models) {
+            Text("Экономия", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Эко-режим")
@@ -310,6 +314,9 @@ fun SettingsScreen(
                 }
                 Switch(checked = ecoMode, onCheckedChange = { ecoMode = it })
             }
+            }
+            if (!models) {
+            Text("Вид", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             Text("Размер шрифта: ${(fontScale * 100).toInt()}%")
             Slider(value = fontScale, onValueChange = { fontScale = (Math.round(it * 20) / 20f) }, valueRange = 0.8f..1.4f)
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -320,6 +327,8 @@ fun SettingsScreen(
                 Switch(checked = compactUi, onCheckedChange = { compactUi = it })
             }
 
+            }
+            if (models) {
             Text("Контекст и память", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -435,6 +444,8 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
 
+            }
+            if (!models) {
             Text("Git", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             OutlinedTextField(
                 value = githubToken,
@@ -535,6 +546,7 @@ fun SettingsScreen(
                 Switch(checked = vm.appLock, onCheckedChange = { vm.setAppLockValue(it) })
             }
 
+            }
             Text("Все изменения сохраняются автоматически.", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(24.dp))
         }

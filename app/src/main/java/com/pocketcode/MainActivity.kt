@@ -58,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.pocketcode.ui.ChatController
+import com.pocketcode.ui.tourAnchor
 import com.pocketcode.ui.ChatScreen
 import com.pocketcode.ui.DevicesScreen
 import com.pocketcode.ui.PluginsScreen
@@ -70,7 +71,7 @@ import com.pocketcode.ui.ProjectsScreen
 import com.pocketcode.ui.SessionsScreen
 import com.pocketcode.ui.SettingsScreen
 
-private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS, REMOTE, DIFF, SEARCH, HUB_PROJECT, HUB_AGENT, HUB_MORE, LINUX, UPDATE, BACKUP }
+private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS, REMOTE, DIFF, SEARCH, HUB_PROJECT, HUB_AGENT, HUB_MORE, MODELS, LINUX, UPDATE, BACKUP }
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
@@ -187,8 +188,7 @@ class MainActivity : ComponentActivity() {
                         dismissButton = { androidx.compose.material3.TextButton(onClick = { crashFile.delete(); crashed = false }) { Text("Закрыть") } },
                     )
                 }
-                if (!pocketApp.controller.tourDone && !crashed) com.pocketcode.ui.TourDialog(onDone = { pocketApp.controller.finishTour() })
-                else if (pocketApp.controller.updatePrompt && !crashed) com.pocketcode.ui.UpdatePromptDialog(pocketApp.controller)
+                if (pocketApp.controller.tourDone && pocketApp.controller.updatePrompt && !crashed) com.pocketcode.ui.UpdatePromptDialog(pocketApp.controller)
                 var screen by remember { mutableStateOf(Screen.CHAT) }
                 var backTo by remember { mutableStateOf(Screen.CHAT) }
                 fun openFrom(hub: Screen, target: Screen) { backTo = hub; screen = target }
@@ -200,7 +200,7 @@ class MainActivity : ComponentActivity() {
                 val section = when (screen) {
                     Screen.CHAT -> 0
                     Screen.HUB_PROJECT, Screen.PROJECTS, Screen.FILES, Screen.SEARCH, Screen.DIFF, Screen.GIT, Screen.TERMINAL -> 1
-                    Screen.HUB_AGENT, Screen.OCSESSIONS, Screen.PLUGINS, Screen.CONTEXT, Screen.COMPARE, Screen.SESSIONS -> 2
+                    Screen.HUB_AGENT, Screen.MODELS, Screen.OCSESSIONS, Screen.PLUGINS, Screen.CONTEXT, Screen.COMPARE, Screen.SESSIONS -> 2
                     else -> 3
                 }
                 androidx.compose.material3.Scaffold(
@@ -215,6 +215,7 @@ class MainActivity : ComponentActivity() {
                             ).forEachIndexed { i, (label, icon, target) ->
                                 NavigationBarItem(
                                     selected = section == i,
+                                    modifier = Modifier.tourAnchor(when (i) { 1 -> "nav_project"; 2 -> "nav_agent"; 3 -> "nav_more"; else -> "nav_chat" }),
                                     onClick = { backTo = Screen.CHAT; screen = target },
                                     icon = { androidx.compose.material3.Icon(icon, contentDescription = label) },
                                     label = { Text(label) },
@@ -252,7 +253,7 @@ class MainActivity : ComponentActivity() {
                             "Агент", vm.profileLabel + (if (vm.openCodeMode) " · режим OpenCode" else ""),
                             listOf(
                                 com.pocketcode.ui.hubHeader("Кто работает"),
-                                com.pocketcode.ui.HubItem(Icons.Default.Settings, "Модель и ключи", "Провайдеры, ключи API, выбор модели, режим работы") { openFrom(Screen.HUB_AGENT, Screen.SETTINGS) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Settings, "Модель и ключи", "Провайдеры, ключи API, выбор модели, режим работы") { openFrom(Screen.HUB_AGENT, Screen.MODELS) },
                                 com.pocketcode.ui.HubItem(Icons.Default.Person, "OpenCode: беседы и аккаунты", "Сессии, аккаунты, лимиты, запасная модель, прокси, доступ вне проекта") { openFrom(Screen.HUB_AGENT, Screen.OCSESSIONS) },
                                 com.pocketcode.ui.HubItem(Icons.Default.Star, "Сравнить модели", "Один запрос сразу в нескольких моделях") { openFrom(Screen.HUB_AGENT, Screen.COMPARE) },
                                 com.pocketcode.ui.hubHeader("Что он знает и умеет"),
@@ -278,7 +279,7 @@ class MainActivity : ComponentActivity() {
                                 com.pocketcode.ui.HubItem(Icons.Default.Share, "Резервная копия", "Сохранить и восстановить настройки и ключи") { openFrom(Screen.HUB_MORE, Screen.BACKUP) },
                                 com.pocketcode.ui.HubItem(Icons.Default.Warning, "Диагностика и расход", "Проверка, расход токенов, очистка места") { openFrom(Screen.HUB_MORE, Screen.DIAG) },
                                 com.pocketcode.ui.hubHeader("Помощь"),
-                                com.pocketcode.ui.HubItem(Icons.Default.Info, "Подсказки", "Показать обучение первого запуска ещё раз") { pocketApp.controller.restartTour() },
+                                com.pocketcode.ui.HubItem(Icons.Default.Info, "Подсказки", "Показать обучение первого запуска ещё раз") { screen = Screen.CHAT; pocketApp.controller.restartTour() },
                                 com.pocketcode.ui.HubItem(Icons.Default.Favorite, "Поддержка", "Помощь, вопросы и идеи: группа PocketCode в Telegram") {
                                     runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/pocket_code_github"))) }
                                 },
@@ -293,7 +294,7 @@ class MainActivity : ComponentActivity() {
                             key(vm) {
                             ChatScreen(
                                 vm,
-                                onOpenSettings = { screen = Screen.SETTINGS },
+                                onOpenSettings = { screen = Screen.MODELS },
                                 onOpenSessions = { screen = Screen.SESSIONS },
                                 onOpenProjects = { screen = Screen.PROJECTS },
                                 onOpenFiles = { screen = Screen.FILES },
@@ -332,10 +333,12 @@ class MainActivity : ComponentActivity() {
                             }
                         } else chat()
                     }
-                    Screen.SETTINGS -> {
+                    Screen.SETTINGS, Screen.MODELS -> {
                         BackHandler { screen = backTo }
                         val pv0 = pocketApp.controller
+                        key(screen) {
                         SettingsScreen(
+                            models = screen == Screen.MODELS,
                             vm = pv0,
                             initial = pv0.settings,
                             onSave = { s, p, a -> pv0.saveSettings(s, p, a) },
@@ -343,6 +346,7 @@ class MainActivity : ComponentActivity() {
                             onOpenCompare = { screen = Screen.COMPARE },
                             onBack = { screen = backTo },
                         )
+                        }
                     }
                     Screen.DIFF -> {
                         BackHandler { screen = backTo }
@@ -427,6 +431,7 @@ class MainActivity : ComponentActivity() {
                 }
                 }
                 }
+                if (!pocketApp.controller.tourDone && !crashed) com.pocketcode.ui.TourOverlay(onDone = { pocketApp.controller.finishTour() })
             }
         }
     }

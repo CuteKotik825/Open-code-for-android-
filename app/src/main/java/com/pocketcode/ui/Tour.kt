@@ -29,63 +29,104 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
-private class TourPage(val icon: ImageVector, val title: String, val body: String)
+/** Экранные координаты элементов, которые подсвечивает тур. */
+object TourAnchors {
+    val rects = androidx.compose.runtime.mutableStateMapOf<String, androidx.compose.ui.geometry.Rect>()
+}
+
+fun Modifier.tourAnchor(key: String): Modifier =
+    this.androidx_onPlaced { TourAnchors.rects[key] = it }
+
+private fun Modifier.androidx_onPlaced(f: (androidx.compose.ui.geometry.Rect) -> Unit): Modifier =
+    this.then(androidx.compose.ui.layout.onGloballyPositioned { f(it.boundsInRoot()) })
+
+private class TourStep(val anchor: String?, val title: String, val body: String)
 
 private val TOUR = listOf(
-    TourPage(AppIcons.Bolt, "Добро пожаловать в PocketCode", "Кодинг-агент прямо на телефоне: читает и правит файлы, запускает команды, работает с git. Ниже за минуту покажем, где что лежит. Всё это можно пропустить."),
-    TourPage(AppIcons.Grid, "Сначала подключи модель", "Ещё → Настройки: вставь ключ любого провайдера. Или открой Агент → OpenCode: там можно работать с бесплатными моделями без своего ключа."),
-    TourPage(AppIcons.Chat, "Чат", "Пиши задачу обычными словами. Над полем ввода быстрые кнопки: остановить, файлы, терминал, правки, новый чат. Кнопка «Чат» внизу всегда возвращает сюда."),
-    TourPage(AppIcons.Folder, "Проект", "Проекты, файлы, поиск, терминал, git. Раздел «Правки агента» показывает, что он изменил, и позволяет откатить по блокам."),
-    TourPage(AppIcons.Bolt, "Агент", "Беседы и аккаунты OpenCode, история чатов, навыки и MCP, что агент сейчас «помнит» в контексте и сравнение моделей."),
-    TourPage(AppIcons.Grid, "Ещё", "Настройки и тема, среда Linux, устройства и root, синхронизация, обновления, резервная копия, диагностика и поддержка в Telegram."),
-    TourPage(AppIcons.Folder, "Linux для агента", "Ещё → Среда Linux: установи мини-Linux (около 4 МБ), и агент сможет ставить python, git, node. Скачивание идёт в фоне, с экрана можно выйти. Если грузится долго, включи VPN."),
+    TourStep(null, "Добро пожаловать в PocketCode", "Кодинг-агент прямо на телефоне. За минуту покажем, где что находится. Всё можно пропустить."),
+    TourStep("input", "Сюда пишешь задачу", "Опиши обычными словами, что сделать с проектом. Можно приложить картинку и отправить: агент сам читает файлы, правит их и запускает команды."),
+    TourStep("quick", "Быстрые кнопки", "Остановить агента, открыть файлы или терминал, посмотреть его правки, начать новый чат. Всё под рукой над полем ввода."),
+    TourStep("project", "Текущий проект", "Агент работает только в этой папке. Нажми на название, чтобы сменить проект или создать новый."),
+    TourStep("nav_project", "Раздел «Проект»", "Файлы, поиск, терминал, git и «Правки агента»: там видно, что он изменил, и можно откатить."),
+    TourStep("nav_agent", "Раздел «Агент»", "Модель и ключи, OpenCode, история чатов, навыки и MCP, что агент помнит в контексте. Начни с «Модель и ключи»: без ключа или OpenCode он не заработает."),
+    TourStep("nav_more", "Раздел «Ещё»", "Настройки и тема, среда Linux, устройства и root, обновления, резервная копия, диагностика и поддержка в Telegram."),
+    TourStep(null, "Linux для агента", "В «Ещё → Среда Linux» ставится мини-Linux (около 4 МБ): с ним агент может ставить python, git и node. Скачивание идёт в фоне, с экрана можно выйти. Если грузится долго, включи VPN."),
 )
 
-/** Подсказки первого запуска. Пропустить можно в любой момент, но только после подтверждения. */
+/** Интерактивные подсказки первого запуска: затемнение с подсветкой нужного места. Пропуск только с подтверждением. */
 @Composable
-fun TourDialog(onDone: () -> Unit) {
-    var page by remember { mutableIntStateOf(0) }
+fun TourOverlay(onDone: () -> Unit) {
+    var step by remember { mutableIntStateOf(0) }
     var confirmSkip by remember { mutableStateOf(false) }
-    Dialog(onDismissRequest = { confirmSkip = true }, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+    var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    var area by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    val st = TOUR[step]
+    val raw = st.anchor?.let { TourAnchors.rects[it] }
+    val target = raw?.translate(-origin.x, -origin.y)
+    androidx.activity.compose.BackHandler { confirmSkip = true }
+    val pulse by androidx.compose.animation.core.rememberInfiniteTransition(label = "tour").animateFloat(
+        0f, 1f,
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1300)),
+        label = "pulse",
+    )
+    val ring = MaterialTheme.colorScheme.primary
+    Box(
+        Modifier.fillMaxSize()
+            .androidx_root { origin = it.first; area = it.second }
+            .androidx_swallowTouches(),
+    ) {
+        androidx.compose.foundation.Canvas(
+            Modifier.fillMaxSize().graphicsLayer(compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen),
+        ) {
+            drawRect(Color.Black.copy(alpha = 0.78f))
+            if (target != null) {
+                val pad = 10.dp.toPx()
+                val tl = androidx.compose.ui.geometry.Offset(target.left - pad, target.top - pad)
+                val sz = androidx.compose.ui.geometry.Size(target.width + 2 * pad, target.height + 2 * pad)
+                val r = androidx.compose.ui.geometry.CornerRadius(minOf(sz.width, sz.height) / 2f)
+                drawRoundRect(Color.Transparent, tl, sz, r, blendMode = androidx.compose.ui.graphics.BlendMode.Clear)
+                val grow = 14.dp.toPx() * pulse
+                drawRoundRect(
+                    ring.copy(alpha = 1f - pulse),
+                    androidx.compose.ui.geometry.Offset(tl.x - grow, tl.y - grow),
+                    androidx.compose.ui.geometry.Size(sz.width + 2 * grow, sz.height + 2 * grow),
+                    androidx.compose.ui.geometry.CornerRadius(minOf(sz.width, sz.height) / 2f + grow),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(3.dp.toPx()),
+                )
+            }
+        }
+        val low = target != null && target.center.y > area.height / 2f
+        val boxAlign = when {
+            target == null -> Alignment.Center
+            low -> Alignment.TopCenter
+            else -> Alignment.BottomCenter
+        }
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 6.dp,
+            modifier = Modifier.align(boxAlign).fillMaxWidth().padding(horizontal = 20.dp, vertical = if (target == null) 0.dp else 64.dp),
+        ) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${step + 1} из ${TOUR.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
                     TextButton(onClick = { confirmSkip = true }) { Text("Пропустить") }
                 }
-                val p = TOUR[page]
-                Column(
-                    Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Box(
-                        Modifier.size(96.dp).clip(RoundedCornerShape(30.dp)).background(
-                            androidx.compose.ui.graphics.Brush.linearGradient(
-                                listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
-                            ),
-                        ),
-                        contentAlignment = Alignment.Center,
-                    ) { androidx.compose.material3.Icon(p.icon, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer) }
-                    Text(p.title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 28.dp, bottom = 12.dp))
-                    Text(p.body, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Row(Modifier.padding(vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TOUR.indices.forEach { i ->
-                        Box(
-                            Modifier.size(if (i == page) 10.dp else 7.dp).clip(CircleShape)
-                                .background(if (i == page) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
-                        )
-                    }
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (page > 0) androidx.compose.material3.OutlinedButton(onClick = { page-- }, modifier = Modifier.weight(1f)) { Text("Назад") }
-                    Button(onClick = { if (page == TOUR.lastIndex) onDone() else page++ }, modifier = Modifier.weight(1f)) {
-                        Text(if (page == TOUR.lastIndex) "Готово" else "Далее")
+                Text(st.title, style = MaterialTheme.typography.titleLarge)
+                Text(st.body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (step > 0) androidx.compose.material3.OutlinedButton(onClick = { step-- }, modifier = Modifier.weight(1f)) { Text("Назад") }
+                    Button(onClick = { if (step == TOUR.lastIndex) onDone() else step++ }, modifier = Modifier.weight(1f)) {
+                        Text(if (step == TOUR.lastIndex) "Готово" else "Далее")
                     }
                 }
             }
@@ -101,6 +142,12 @@ fun TourDialog(onDone: () -> Unit) {
         )
     }
 }
+
+private fun Modifier.androidx_root(f: (Pair<androidx.compose.ui.geometry.Offset, androidx.compose.ui.unit.IntSize>) -> Unit): Modifier =
+    this.then(androidx.compose.ui.layout.onGloballyPositioned { f(it.positionInRoot() to it.size) })
+
+private fun Modifier.androidx_swallowTouches(): Modifier =
+    this.then(androidx.compose.ui.input.pointer.pointerInput(Unit) { androidx.compose.foundation.gestures.detectTapGestures { } })
 
 /** Полоса сверху на любом экране: идёт установка Linux или скачивание обновления, либо есть итог. */
 @Composable
