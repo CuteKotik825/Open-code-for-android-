@@ -34,6 +34,7 @@ object Http {
         body: String,
         onData: (String) -> Unit,
     ) = coroutineScope {
+        RateGate.acquire()
         val request = Request.Builder()
             .url(url)
             .apply { headers.forEach { (k, v) -> header(k, v) } }
@@ -65,7 +66,12 @@ object Http {
     }
 
     /** POST JSON; при отмене корутины запрос обрывается. */
-    suspend fun postJson(url: String, headers: Map<String, String>, body: String): String =
+    suspend fun postJson(url: String, headers: Map<String, String>, body: String): String {
+        RateGate.acquire()
+        return postJsonRaw(url, headers, body)
+    }
+
+    private suspend fun postJsonRaw(url: String, headers: Map<String, String>, body: String): String =
         suspendCancellableCoroutine { cont ->
             val request = Request.Builder()
                 .url(url)

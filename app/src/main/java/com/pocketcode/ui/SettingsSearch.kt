@@ -34,6 +34,8 @@ class SettingEntry(val title: String, val where: String, val words: String, val 
 val SETTING_INDEX = listOf(
     SettingEntry("Ключи API и профили", "Агент → Модель и ключи", "ключ api провайдер профиль добавить openai deepseek openrouter anthropic токен", "MODELS", "keys"),
     SettingEntry("Выбор модели и адрес API", "Агент → Модель и ключи", "модель base url адрес сервер имя модели провайдер", "MODELS", "model"),
+    SettingEntry("Частота запросов (лимит в минуту)", "Агент → Модель и ключи", "частота запросов лимит в минуту rpm 429 бесплатные модели ограничение claude code клауд код opencode прокси", "MODELS", "rate"),
+    SettingEntry("Как добавить стороннего провайдера в OpenCode", "Агент → Настройки OpenCode", "свой провайдер сторонний openai совместимый base url адрес api ключ модель добавить инструкция", "OCSETTINGS"),
     SettingEntry("Эко-режим", "Агент → Модель и ключи", "эко экономия токенов дешевле контекст", "MODELS", "eco"),
     SettingEntry("Размер контекста, кэш, резервный профиль", "Агент → Модель и ключи", "контекст память кэширование сводка резервный профиль хуки автопроверки максимум шагов", "MODELS", "ctx"),
     SettingEntry("Размер шрифта и компактный вид", "Ещё → Настройки", "шрифт размер текста компактный вид мельче крупнее", "SETTINGS", "view"),

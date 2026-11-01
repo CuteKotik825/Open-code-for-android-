@@ -71,6 +71,7 @@ import com.pocketcode.agent.AgentEvent
 import com.pocketcode.agent.systemPrompt
 import com.pocketcode.llm.AnthropicClient
 import com.pocketcode.llm.LlmClient
+import com.pocketcode.llm.RateGate
 import com.pocketcode.llm.Message
 import com.pocketcode.llm.OpenAiClient
 import com.pocketcode.Profile
@@ -2278,7 +2279,7 @@ class ChatController(
 
     private val backupPrefKeys = listOf(
         "syncRepo", "syncProjects", "syncInterval", "syncHost", "ocFallback", "ocAutoSwitch", "ocAutoCompact", "ocRateRetryMin",
-        "hostMode", "ocBudget", "ocListLim", "ocShowLim", "ocFresh", "ocExtMode", "ocModel", "ocCards", "themeMode", "palette", "amoled", "templates", "stars", "ocPins", "ocTitles", "bigInput",
+        "hostMode", "rpmLimit", "ocBudget", "ocListLim", "ocShowLim", "ocFresh", "ocExtMode", "ocModel", "ocCards", "themeMode", "palette", "amoled", "templates", "stars", "ocPins", "ocTitles", "bigInput",
     )
 
     private fun cryptKey(password: String, salt: ByteArray): javax.crypto.spec.SecretKeySpec {
@@ -2957,6 +2958,21 @@ class ChatController(
         private set
     fun setOcShowLimitValue(v: Int) { ocShowLimit = v; settingsStore.rawPut("ocShowLim", v.toString()) }
 
+    /** Запросов к модели в минуту (0 = без ограничений). Общий лимит для агента приложения и для локального прокси. */
+    var rpmLimit by mutableIntStateOf(settingsStore.rawGet("rpmLimit")?.toIntOrNull() ?: 0)
+        private set
+    fun setRpmLimitValue(v: Int) { rpmLimit = v; RateGate.perMinute = v; settingsStore.rawPut("rpmLimit", v.toString()) }
+
+    private val rateToken: String = settingsStore.rawGet("rateToken") ?: java.util.UUID.randomUUID().toString().replace("-", "").take(16).also { settingsStore.rawPut("rateToken", it) }
+    private val rateProxy = com.pocketcode.llm.RateProxy(rateToken)
+    var rateProxyOk by mutableStateOf(false)
+        private set
+    init { RateGate.perMinute = rpmLimit; rateProxyOk = rateProxy.start() }
+
+    /** Адрес сервиса, завёрнутый в локальный прокси с лимитом. Его вставляют как Base URL в Claude Code / OpenCode / что угодно. */
+    fun rateWrapUrl(upstream: String): String = com.pocketcode.llm.RateProxy.wrap(rateToken, upstream.trim())
+    fun rateProxyRestart() { rateProxyOk = rateProxy.start() }
+
     var ocDailyBudget by mutableIntStateOf(settingsStore.rawGet("ocBudget")?.toIntOrNull() ?: 0)
         private set
     fun setOcDailyBudgetValue(v: Int) { ocDailyBudget = v; settingsStore.rawPut("ocBudget", v.toString()) }
@@ -3601,11 +3617,12 @@ class ChatController(
         ocCustomProviders = prov?.entries?.filter { ((it.value as? kotlinx.serialization.json.JsonObject)?.get("options") as? kotlinx.serialization.json.JsonObject)?.get("baseURL") != null }?.map { it.key }.orEmpty()
     }
 
-    fun ocCustomSet(idIn: String, baseUrl: String, model: String, key: String): String {
+    fun ocCustomSet(idIn: String, baseUrl: String, model: String, key: String, limited: Boolean = false): String {
         val id = idIn.trim().lowercase().replace(Regex("[^a-z0-9_-]"), "")
-        val url = baseUrl.trim().trimEnd('/')
+        val url0 = baseUrl.trim().trimEnd('/')
         val m = model.trim()
-        if (id.isEmpty() || !url.startsWith("http") || m.isEmpty()) return "Нужны название (латиницей), адрес https://… и модель."
+        if (id.isEmpty() || !url0.startsWith("http") || m.isEmpty()) return "Нужны название (латиницей), адрес https://… и модель."
+        val url = if (limited && !url0.startsWith("http://127.0.0.1:${com.pocketcode.llm.RateProxy.PORT}/")) { rateProxyRestart(); rateWrapUrl(url0) } else url0
         if (!linuxEnv.isInstalled()) return "Сначала установи Linux."
         return try {
             val cfg = ocConfigRead()
@@ -3632,7 +3649,7 @@ class ChatController(
             if (useKey.isNotEmpty()) Secrets.known = Secrets.known + useKey
             setOcModelValue("$id/$m")
             refreshOcCustom()
-            "Провайдер «$id» сохранён, модель выбрана: $id/$m. Включи режим OpenCode и пиши."
+            "Провайдер «$id» сохранён, модель выбрана: $id/$m." + (if (limited) " Запросы идут через ограничитель (сейчас: ${if (rpmLimit > 0) "$rpmLimit в минуту" else "без лимита — выбери его в Настройках → Модели"})." else "") + " Включи режим OpenCode и пиши."
         } catch (e: Throwable) { "Не удалось записать: ${e.message}" }
     }
 
