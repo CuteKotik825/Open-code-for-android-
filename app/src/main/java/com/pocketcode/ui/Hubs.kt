@@ -32,7 +32,7 @@ fun hubHeader(text: String) = HubItem(AppIcons.Chevron, text, "", null, true)
 
 /** Раздел нижней панели: крупные карточки с пояснениями, куда это ведёт. */
 @Composable
-fun HubScreen(title: String, subtitle: String, items: List<HubItem>) {
+fun HubScreen(title: String, subtitle: String, items: List<HubItem>, onSearch: (() -> Unit)? = null) {
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp),
@@ -49,6 +49,9 @@ fun HubScreen(title: String, subtitle: String, items: List<HubItem>) {
                     )
                     .padding(horizontal = 20.dp, vertical = 26.dp),
             ) {
+                if (onSearch != null) androidx.compose.material3.IconButton(onClick = onSearch, modifier = Modifier.align(Alignment.TopEnd)) {
+                    Icon(androidx.compose.material.icons.Icons.Default.Search, contentDescription = "Поиск по настройкам", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
                 Column {
                     Text(title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))

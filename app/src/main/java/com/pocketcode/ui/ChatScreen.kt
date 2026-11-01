@@ -168,6 +168,7 @@ fun ChatScreen(
                     Box {
                         TextButton(onClick = { moreMenu = true }) { Text("⋮") }
                         DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
+                            DropdownMenuItem(text = { Text("Новая вкладка чата") }, onClick = { moreMenu = false; (ctx.applicationContext as com.pocketcode.PocketCodeApp).addTab() })
                             DropdownMenuItem(text = { Text("Терминал") }, onClick = { moreMenu = false; onOpenTerminal() })
                             DropdownMenuItem(text = { Text("Git") }, onClick = { moreMenu = false; onOpenGit() })
                             DropdownMenuItem(text = { Text("Что в контексте") }, onClick = { moreMenu = false; onOpenContext() })
@@ -193,25 +194,6 @@ fun ChatScreen(
                 .padding(padding)
                 .fillMaxSize(),
         ) {
-            if (vm.profiles.size > 1) {
-                val active = vm.profiles.firstOrNull { it.id == vm.activeProfileId }
-                Box(Modifier.padding(horizontal = 4.dp)) {
-                    TextButton(onClick = { profileMenu = true }, enabled = !vm.running) {
-                        Text("🔑 ${active?.label ?: "?"} · ${active?.model.orEmpty()} ▾", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    DropdownMenu(expanded = profileMenu, onDismissRequest = { profileMenu = false }) {
-                        vm.profiles.forEach { p ->
-                            DropdownMenuItem(
-                                text = { Text(p.label + " · " + p.model) },
-                                onClick = {
-                                    vm.switchProfile(p.id)
-                                    profileMenu = false
-                                },
-                            )
-                        }
-                    }
-                }
-            }
             if (vm.contextUsed > 0) {
                 val limit = vm.effectiveContext.coerceAtLeast(1)
                 val frac = (vm.contextUsed.toFloat() / limit).coerceIn(0f, 1f)
@@ -300,50 +282,6 @@ fun ChatScreen(
                             input = ""
                         }) { Text("Уточнить сейчас") }
                     }
-                }
-            }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                SingleChoiceSegmentedButtonRow(Modifier.padding(end = 6.dp)) {
-                    val modes = listOf("Обычный", "OpenCode", "План")
-                    val cur = if (vm.openCodeMode) 1 else if (vm.planMode) 2 else 0
-                    modes.forEachIndexed { i, label ->
-                        SegmentedButton(
-                            selected = cur == i,
-                            onClick = { vm.openCodeMode = i == 1; vm.planMode = i == 2 },
-                            shape = SegmentedButtonDefaults.itemShape(i, modes.size),
-                            label = { Text(label, maxLines = 1) },
-                        )
-                    }
-                }
-                if (vm.todos.isNotEmpty()) {
-                    val done = vm.todos.count { it.startsWith("[x]", true) }
-                    TextButton(onClick = { showTodos = !showTodos }) { Text("Задачи $done/${vm.todos.size}") }
-                }
-                vm.lastPreview?.let { TextButton(onClick = { vm.previewUrl = it }) { Text("Превью") } }
-                if (vm.changes.isNotEmpty()) {
-                    TextButton(onClick = { showChanges = true }) { Text("Правки (${vm.changes.size})") }
-                }
-            }
-            if (vm.openCodeMode) {
-                var ocOpen by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { ocOpen = !ocOpen }) { Text(if (ocOpen) "OpenCode ▾" else "OpenCode ▸") }
-                    if (ocOpen) {
-                        TextButton(onClick = { modelDraft = vm.ocModel; vm.loadOcModels(); dlg = "ocmodel" }) {
-                            Text("🧠 " + vm.ocModel.ifBlank { "по умолчанию" }.take(22), maxLines = 1)
-                        }
-                        TextButton(onClick = onOpenOcSessions) { Text("📂 Диалоги", maxLines = 1) }
-                    } else {
-                        Text(vm.ocModel.ifBlank { "по умолчанию" }.take(26), style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                    }
-                }
-                if (ocOpen) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        (if (vm.ocSessionId != null) vm.ocSessionTitle.take(30) else "новая беседа") + (if (vm.ocActiveAccount.isNotEmpty()) " · " + vm.ocActiveAccount else "") +
-                            (if (vm.ocCtxTokens > 20_000) " · контекст ≈ ${vm.ocCtxTokens / 1000}к" else ""),
-                        style = MaterialTheme.typography.labelSmall, maxLines = 1, modifier = Modifier.weight(1f),
-                    )
-                    if (vm.ocCtxTokens > 60_000 && !vm.running) TextButton(onClick = { vm.compactOcSession() }) { Text("Сжать") }
                 }
             }
             if (showTodos && vm.todos.isNotEmpty()) {
@@ -456,14 +394,51 @@ fun ChatScreen(
                     TextButton(onClick = { vm.removeImage(vm.pendingImages.lastIndex) }) { Text("Убрать последнюю") }
                 }
             }
+            var modeMenu by remember { mutableStateOf(false) }
             Row(
                 Modifier.fillMaxWidth().tourAnchor("quick").horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (vm.running) androidx.compose.material3.AssistChip(onClick = { vm.stop() }, label = { Text("Остановить") })
+                Box {
+                    androidx.compose.material3.AssistChip(
+                        onClick = { modeMenu = true },
+                        label = { Text((if (vm.openCodeMode) "OpenCode" else if (vm.planMode) "План" else "Обычный") + " ▾") },
+                    )
+                    DropdownMenu(expanded = modeMenu, onDismissRequest = { modeMenu = false }) {
+                        listOf("Обычный", "OpenCode", "План").forEachIndexed { i, label ->
+                            DropdownMenuItem(text = { Text(label) }, onClick = { vm.openCodeMode = i == 1; vm.planMode = i == 2; modeMenu = false })
+                        }
+                    }
+                }
+                if (vm.openCodeMode) {
+                    androidx.compose.material3.AssistChip(onClick = { modelDraft = vm.ocModel; vm.loadOcModels(); dlg = "ocmodel" }, label = { Text("🧠 " + vm.ocModel.ifBlank { "по умолчанию" }.take(22), maxLines = 1) })
+                    androidx.compose.material3.AssistChip(onClick = onOpenOcSessions, label = { Text("📂 " + (if (vm.ocSessionId != null) vm.ocSessionTitle.take(16) else "Диалоги"), maxLines = 1) })
+                    if (vm.ocCtxTokens > 60_000 && !vm.running) androidx.compose.material3.AssistChip(onClick = { vm.compactOcSession() }, label = { Text("Сжать ≈${vm.ocCtxTokens / 1000}к") })
+                } else {
+                    val active = vm.profiles.firstOrNull { it.id == vm.activeProfileId }
+                    Box {
+                        androidx.compose.material3.AssistChip(
+                            onClick = { if (vm.profiles.size > 1) profileMenu = true else { modelDraft = vm.settings.model; dlg = "model" } },
+                            enabled = !vm.running,
+                            label = { Text("🔑 ${active?.label ?: "?"} · ${active?.model.orEmpty().take(18)}", maxLines = 1) },
+                        )
+                        DropdownMenu(expanded = profileMenu, onDismissRequest = { profileMenu = false }) {
+                            vm.profiles.forEach { p ->
+                                DropdownMenuItem(text = { Text(p.label + " · " + p.model) }, onClick = { vm.switchProfile(p.id); profileMenu = false })
+                            }
+                        }
+                    }
+                }
                 androidx.compose.material3.AssistChip(onClick = onOpenFiles, label = { Text("Файлы") }, leadingIcon = { Icon(AppIcons.Folder, null, Modifier.size(16.dp)) })
                 androidx.compose.material3.AssistChip(onClick = onOpenTerminal, label = { Text("Терминал") })
                 if (vm.changes.isNotEmpty()) androidx.compose.material3.AssistChip(onClick = onOpenDiff, label = { Text("Правки (${vm.changes.size})") })
+                if (vm.todos.isNotEmpty()) {
+                    val done = vm.todos.count { it.startsWith("[x]", true) }
+                    androidx.compose.material3.AssistChip(onClick = { showTodos = !showTodos }, label = { Text("Задачи $done/${vm.todos.size}") })
+                }
+                vm.lastPreview?.let { pv -> androidx.compose.material3.AssistChip(onClick = { vm.previewUrl = pv }, label = { Text("Превью") }) }
                 androidx.compose.material3.AssistChip(onClick = { showNewChat = true }, label = { Text("Новый чат") }, leadingIcon = { Icon(Icons.Filled.Add, null, Modifier.size(16.dp)) })
             }
             androidx.compose.material3.Surface(

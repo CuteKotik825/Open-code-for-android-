@@ -71,7 +71,7 @@ import com.pocketcode.ui.ProjectsScreen
 import com.pocketcode.ui.SessionsScreen
 import com.pocketcode.ui.SettingsScreen
 
-private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS, REMOTE, DIFF, SEARCH, HUB_PROJECT, HUB_AGENT, HUB_MORE, MODELS, LINUX, UPDATE, BACKUP }
+private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS, REMOTE, DIFF, SEARCH, HUB_PROJECT, HUB_AGENT, HUB_MORE, FIND, MODELS, LINUX, UPDATE, BACKUP }
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
@@ -191,7 +191,8 @@ class MainActivity : ComponentActivity() {
                 if (pocketApp.controller.tourDone && pocketApp.controller.updatePrompt && !crashed) com.pocketcode.ui.UpdatePromptDialog(pocketApp.controller)
                 var screen by remember { mutableStateOf(Screen.CHAT) }
                 var backTo by remember { mutableStateOf(Screen.CHAT) }
-                fun openFrom(hub: Screen, target: Screen) { backTo = hub; screen = target }
+                var focusKey by remember { mutableStateOf<String?>(null) }
+                fun openFrom(hub: Screen, target: Screen) { focusKey = null; backTo = hub; screen = target }
                 val pv = vm.previewUrl
                 val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 840
                 val imeDensity = androidx.compose.ui.platform.LocalDensity.current
@@ -200,7 +201,7 @@ class MainActivity : ComponentActivity() {
                 val section = when (screen) {
                     Screen.CHAT -> 0
                     Screen.HUB_PROJECT, Screen.PROJECTS, Screen.FILES, Screen.SEARCH, Screen.DIFF, Screen.GIT, Screen.TERMINAL -> 1
-                    Screen.HUB_AGENT, Screen.MODELS, Screen.OCSESSIONS, Screen.PLUGINS, Screen.CONTEXT, Screen.COMPARE, Screen.SESSIONS -> 2
+                    Screen.HUB_AGENT, Screen.FIND, Screen.MODELS, Screen.OCSESSIONS, Screen.PLUGINS, Screen.CONTEXT, Screen.COMPARE, Screen.SESSIONS -> 2
                     else -> 3
                 }
                 androidx.compose.material3.Scaffold(
@@ -245,6 +246,7 @@ class MainActivity : ComponentActivity() {
                                 com.pocketcode.ui.HubItem(Icons.Default.PlayArrow, "Терминал и запуск", "Команды в Linux, кнопки запуска проекта") { openFrom(Screen.HUB_PROJECT, Screen.TERMINAL) },
                                 com.pocketcode.ui.HubItem(Icons.Default.Share, "Git и GitHub", "Коммиты, ветки, PR, проверки сборки") { openFrom(Screen.HUB_PROJECT, Screen.GIT) },
                             ),
+                            onSearch = { openFrom(screen, Screen.FIND) },
                         )
                     }
                     Screen.HUB_AGENT -> {
@@ -262,6 +264,7 @@ class MainActivity : ComponentActivity() {
                                 com.pocketcode.ui.hubHeader("Прошлое"),
                                 com.pocketcode.ui.HubItem(Icons.Default.DateRange, "История чатов", "Прошлые беседы, вернуться к любой") { openFrom(Screen.HUB_AGENT, Screen.SESSIONS) },
                             ),
+                            onSearch = { openFrom(screen, Screen.FIND) },
                         )
                     }
                     Screen.HUB_MORE -> {
@@ -284,12 +287,13 @@ class MainActivity : ComponentActivity() {
                                     runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/pocket_code_github"))) }
                                 },
                             ),
+                            onSearch = { openFrom(screen, Screen.FIND) },
                         )
                     }
                     Screen.CHAT -> {
                         val chat: @Composable () -> Unit = {
                           androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
-                            TabBar(pocketApp)
+                            if (pocketApp.tabs.size > 1) TabBar(pocketApp)
                             androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
                             key(vm) {
                             ChatScreen(
@@ -333,12 +337,25 @@ class MainActivity : ComponentActivity() {
                             }
                         } else chat()
                     }
+                    Screen.FIND -> {
+                        BackHandler { screen = Screen.CHAT }
+                        com.pocketcode.ui.SettingsSearchScreen(
+                            onBack = { screen = Screen.CHAT },
+                            onOpen = { e ->
+                                focusKey = e.focus
+                                backTo = Screen.FIND
+                                screen = runCatching { Screen.valueOf(e.screen) }.getOrDefault(Screen.CHAT)
+                            },
+                        )
+                    }
                     Screen.SETTINGS, Screen.MODELS -> {
                         BackHandler { screen = backTo }
                         val pv0 = pocketApp.controller
                         key(screen) {
                         SettingsScreen(
                             models = screen == Screen.MODELS,
+                            focus = focusKey,
+                            onSearch = { focusKey = null; openFrom(screen, Screen.FIND) },
                             vm = pv0,
                             initial = pv0.settings,
                             onSave = { s, p, a -> pv0.saveSettings(s, p, a) },

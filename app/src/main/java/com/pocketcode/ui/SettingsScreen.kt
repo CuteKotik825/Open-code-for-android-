@@ -23,6 +23,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.delay
 import androidx.compose.material3.Slider
@@ -52,7 +54,15 @@ fun SettingsScreen(
     onOpenCompare: () -> Unit,
     onBack: () -> Unit,
     models: Boolean = false,
+    focus: String? = null,
+    onSearch: (() -> Unit)? = null,
 ) {
+    val scroll = androidx.compose.foundation.rememberScrollState()
+    val secY = remember { androidx.compose.runtime.mutableStateMapOf<String, Int>() }
+    fun sec(k: String) = Modifier.onGloballyPositioned { secY[k] = it.positionInParent().y.toInt() }
+    LaunchedEffect(focus) {
+        if (focus != null) { delay(450); secY[focus]?.let { scroll.animateScrollTo((it - 24).coerceAtLeast(0)) } }
+    }
     var provider by remember { mutableStateOf(initial.provider) }
     var baseUrl by remember { mutableStateOf(initial.baseUrl) }
     var model by remember { mutableStateOf(initial.model) }
@@ -133,6 +143,7 @@ fun SettingsScreen(
             TopAppBar(
                 title = { Text((if (models) "Модель и ключи" else "Настройки") + (if (savedMark) " · сохранено" else "")) },
                 navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(com.pocketcode.ui.AppIcons.Back, contentDescription = "Назад") } },
+                actions = { if (onSearch != null) androidx.compose.material3.IconButton(onClick = onSearch) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.Search, contentDescription = "Поиск по настройкам") } },
             )
         },
     ) { padding ->
@@ -140,12 +151,12 @@ fun SettingsScreen(
             Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scroll)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (models) {
-            Text("Ключи и модели", style = MaterialTheme.typography.titleMedium)
+            Text("Ключи и модели", style = MaterialTheme.typography.titleMedium, modifier = sec("keys"))
             Text(
                 "Можно хранить несколько ключей (например, рабочий и личный) и переключаться между ними. Подпись нужна только тебе.",
                 style = MaterialTheme.typography.bodySmall,
@@ -223,7 +234,7 @@ fun SettingsScreen(
                 Text("Шаблон заполняет адрес, модель и размеры; останется вставить свой ключ.", style = MaterialTheme.typography.bodySmall)
             }
 
-            Text("Модель", style = MaterialTheme.typography.titleMedium)
+            Text("Модель", style = MaterialTheme.typography.titleMedium, modifier = sec("model"))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Provider.values().forEach { p ->
                     FilterChip(
@@ -303,7 +314,7 @@ fun SettingsScreen(
 
             }
             if (models) {
-            Text("Экономия", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            Text("Экономия", style = MaterialTheme.typography.titleMedium, modifier = sec("eco").padding(top = 8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Эко-режим")
@@ -316,7 +327,7 @@ fun SettingsScreen(
             }
             }
             if (!models) {
-            Text("Вид", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            Text("Вид", style = MaterialTheme.typography.titleMedium, modifier = sec("view").padding(top = 8.dp))
             Text("Размер шрифта: ${(fontScale * 100).toInt()}%")
             Slider(value = fontScale, onValueChange = { fontScale = (Math.round(it * 20) / 20f) }, valueRange = 0.8f..1.4f)
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -329,7 +340,7 @@ fun SettingsScreen(
 
             }
             if (models) {
-            Text("Контекст и память", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            Text("Контекст и память", style = MaterialTheme.typography.titleMedium, modifier = sec("ctx").padding(top = 8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Кэширование контекста")
@@ -446,7 +457,7 @@ fun SettingsScreen(
 
             }
             if (!models) {
-            Text("Git", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            Text("Git", style = MaterialTheme.typography.titleMedium, modifier = sec("git").padding(top = 8.dp))
             OutlinedTextField(
                 value = githubToken,
                 onValueChange = { githubToken = it },
@@ -470,7 +481,7 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Text("Безопасность", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            Text("Безопасность", style = MaterialTheme.typography.titleMedium, modifier = sec("safe").padding(top = 8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Выполнять без подтверждения")
@@ -512,7 +523,7 @@ fun SettingsScreen(
                 }
                 Switch(checked = vm.bigInput, onCheckedChange = { vm.setBigInputValue(it) })
             }
-            Text("Тема", style = MaterialTheme.typography.bodyMedium)
+            Text("Тема", style = MaterialTheme.typography.bodyMedium, modifier = sec("theme"))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("dark" to "Тёмная", "light" to "Светлая", "system" to "Как в системе").forEach { (v, l) ->
                     androidx.compose.material3.FilterChip(selected = vm.themeMode == v, onClick = { vm.setThemeModeValue(v) }, label = { Text(l) })
@@ -525,7 +536,7 @@ fun SettingsScreen(
                 }
                 Switch(checked = vm.amoled, onCheckedChange = { vm.setAmoledValue(it) })
             }
-            Text("Цвет акцента", style = MaterialTheme.typography.bodyMedium)
+            Text("Цвет акцента", style = MaterialTheme.typography.bodyMedium, modifier = sec("accent"))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 (ACCENTS.map { Triple(it.id, it.title, it.dark) } + Triple("system", "Из обоев", androidx.compose.ui.graphics.Color(0xFF9E9E9E))).forEach { (id, title, color) ->
                     androidx.compose.material3.FilterChip(
