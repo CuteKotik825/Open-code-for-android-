@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.dp
 /** Беседы, которые ведёт OpenCode внутри Linux: выбрать, продолжить, удалить. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Unit) {
+fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Unit, settings: Boolean = false) {
     var confirmDelete by remember { mutableStateOf<ChatController.OcSession?>(null) }
     var provider by remember { mutableStateOf("opencode") }
     var key by remember { mutableStateOf("") }
@@ -50,20 +50,21 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
     var showLog by remember { mutableStateOf(false) }
     val uiScope = androidx.compose.runtime.rememberCoroutineScope()
     var accMsg by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { vm.refreshOcSessions(); vm.refreshOcAccounts(); vm.refreshOcCustom() }
+    LaunchedEffect(Unit) { if (!settings) vm.refreshOcSessions(); vm.refreshOcAccounts(); vm.refreshOcCustom() }
     var exportFor by remember { mutableStateOf<ChatController.OcSession?>(null) }
     val mdLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/markdown"),
     ) { uri -> val s = exportFor; if (uri != null && s != null) vm.exportOcSessionTo(s, uri) }
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("Диалоги OpenCode") },
+            title = { Text(if (settings) "Настройки OpenCode" else "Диалоги OpenCode") },
             navigationIcon = { androidx.compose.material3.IconButton(onClick = onBack) { androidx.compose.material3.Icon(com.pocketcode.ui.AppIcons.Back, contentDescription = "Назад") } },
-            actions = { TextButton(onClick = { vm.refreshOcSessions() }, enabled = !vm.ocSessionsBusy) { Text("Обновить") } },
+            actions = { if (!settings) TextButton(onClick = { vm.refreshOcSessions() }, enabled = !vm.ocSessionsBusy) { Text("Обновить") } },
         )
     }) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
           item { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (!settings) {
             Text(
                 "Это беседы самого OpenCode (хранятся внутри Linux). Выбери беседу, и новые сообщения в режиме OpenCode продолжат её, а переписка покажется в чате.",
                 style = MaterialTheme.typography.bodySmall,
@@ -72,6 +73,8 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
             OutlinedButton(onClick = { vm.newOcSession(); onOpened() }, modifier = Modifier.fillMaxWidth()) { Text("Начать новую беседу") }
             OutlinedButton(onClick = { vm.resetSessionAndChat(true); onOpened() }, enabled = !vm.running, modifier = Modifier.fillMaxWidth()) { Text("Сбросить сессию, оставив последнее сообщение") }
             OutlinedButton(onClick = { vm.resetSessionAndChat(false); onOpened() }, enabled = !vm.running, modifier = Modifier.fillMaxWidth()) { Text("Сбросить сессию и чат полностью (анонимно)") }
+            }
+            if (settings) {
             androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Аккаунты OpenCode", style = MaterialTheme.typography.titleSmall)
@@ -265,13 +268,16 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                     }
                 }
             }
+            }
+            if (!settings) {
             androidx.compose.material3.OutlinedTextField(
                 value = query, onValueChange = { query = it }, singleLine = true,
                 label = { Text("Поиск по беседам (название и последнее сообщение)") }, modifier = Modifier.fillMaxWidth(),
             )
             vm.ocSessionsMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            }
           } }
-          run {
+          if (!settings) run {
                 val q = query.trim()
                 val shown = vm.ocSessions
                     .filter { q.isEmpty() || vm.ocTitleOf(it).contains(q, true) || (vm.ocPreviews[it.id] ?: "").contains(q, true) }

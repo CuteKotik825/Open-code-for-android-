@@ -187,7 +187,7 @@ fun UpdatePromptDialog(vm: ChatController) {
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Новая сборка ${info.build}" + (if (info.size > 0) " (${info.size / 1048576} МБ)" else "") + ". У тебя ${vm.currentVersion}.")
-                if (info.notes.isNotBlank()) Text(info.notes.take(400), style = MaterialTheme.typography.bodySmall)
+                if (info.notes.isNotBlank()) Text(info.notes.take(1500), style = MaterialTheme.typography.bodySmall)
                 Text("Скачивание пойдёт в фоне, можно пользоваться приложением. С включённым VPN обычно быстрее. Установишь, когда скачается.", style = MaterialTheme.typography.bodySmall)
             }
         },

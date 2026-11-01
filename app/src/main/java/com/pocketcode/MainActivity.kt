@@ -71,7 +71,7 @@ import com.pocketcode.ui.ProjectsScreen
 import com.pocketcode.ui.SessionsScreen
 import com.pocketcode.ui.SettingsScreen
 
-private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS, REMOTE, DIFF, SEARCH, HUB_PROJECT, HUB_AGENT, HUB_MORE, FIND, ROOT, MODELS, LINUX, UPDATE, BACKUP }
+private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS, REMOTE, DIFF, SEARCH, HUB_PROJECT, HUB_AGENT, HUB_MORE, FIND, ROOT, OCSETTINGS, MODELS, LINUX, UPDATE, BACKUP }
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
@@ -202,7 +202,7 @@ class MainActivity : ComponentActivity() {
                 val section = when (screen) {
                     Screen.CHAT -> 0
                     Screen.HUB_PROJECT, Screen.PROJECTS, Screen.FILES, Screen.SEARCH, Screen.DIFF, Screen.GIT, Screen.TERMINAL -> 1
-                    Screen.HUB_AGENT, Screen.FIND, Screen.MODELS, Screen.OCSESSIONS, Screen.PLUGINS, Screen.CONTEXT, Screen.COMPARE, Screen.SESSIONS -> 2
+                    Screen.HUB_AGENT, Screen.FIND, Screen.MODELS, Screen.OCSESSIONS, Screen.OCSETTINGS, Screen.PLUGINS, Screen.CONTEXT, Screen.COMPARE, Screen.SESSIONS -> 2
                     else -> 3
                 }
                 androidx.compose.material3.Scaffold(
@@ -257,7 +257,8 @@ class MainActivity : ComponentActivity() {
                             listOf(
                                 com.pocketcode.ui.hubHeader("Кто работает"),
                                 com.pocketcode.ui.HubItem(Icons.Default.Settings, "Модель и ключи", "Провайдеры, ключи API, выбор модели, режим работы") { openFrom(Screen.HUB_AGENT, Screen.MODELS) },
-                                com.pocketcode.ui.HubItem(Icons.Default.Person, "OpenCode: беседы и аккаунты", "Сессии, аккаунты, лимиты, запасная модель, прокси, доступ вне проекта") { openFrom(Screen.HUB_AGENT, Screen.OCSESSIONS) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Person, "Диалоги OpenCode", "Список бесед: открыть, закрепить, переименовать, удалить, начать новую") { openFrom(Screen.HUB_AGENT, Screen.OCSESSIONS) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Settings, "Настройки OpenCode", "Аккаунты, ключ, прокси, лимиты, доступ вне проекта, статистика") { openFrom(Screen.HUB_AGENT, Screen.OCSETTINGS) },
                                 com.pocketcode.ui.HubItem(Icons.Default.Star, "Сравнить модели", "Один запрос сразу в нескольких моделях") { openFrom(Screen.HUB_AGENT, Screen.COMPARE) },
                                 com.pocketcode.ui.hubHeader("Что он знает и умеет"),
                                 com.pocketcode.ui.HubItem(Icons.Default.Info, "Что в контексте", "Что агент сейчас «помнит» и сколько это весит") { openFrom(Screen.HUB_AGENT, Screen.CONTEXT) },
@@ -378,6 +379,10 @@ class MainActivity : ComponentActivity() {
                     Screen.REMOTE -> {
                         BackHandler { screen = backTo }
                         com.pocketcode.ui.RemoteScreen(vm, onBack = { screen = backTo })
+                    }
+                    Screen.OCSETTINGS -> {
+                        BackHandler { screen = backTo }
+                        com.pocketcode.ui.OcSessionsScreen(vm, onBack = { screen = backTo }, onOpened = { screen = Screen.CHAT }, settings = true)
                     }
                     Screen.OCSESSIONS -> {
                         BackHandler { screen = backTo }

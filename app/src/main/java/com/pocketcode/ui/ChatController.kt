@@ -3214,11 +3214,16 @@ class ChatController(
     var ocPending by mutableStateOf<List<OcPermRequest>>(emptyList())
         private set
     private val ocGranted = mutableStateListOf<String>()
+    /** Пока агент приостановлен и ждёт решения: завершается кнопками окна доступа (true — разрешено). */
+    private var ocPermWait: kotlinx.coroutines.CompletableDeferred<Boolean>? = null
+    /** Разрешено «всё» до конца этой беседы (не сохраняется между запусками приложения). */
+    private var ocAllowSession = false
+    private var ocRetryPrompt: String? = null
     private val permRegex = Regex("""permission requested: (\w+) \(([^)]+)\); auto-rejecting""")
 
     private fun ocPermEnv(): String {
         val q = { t: String -> t.replace("\"", "").replace("'", "") }
-        if (ocExtMode == "allow") return "export OPENCODE_PERMISSION='{\"external_directory\":\"allow\"}'; "
+        if (ocExtMode == "allow" || ocAllowSession) return "export OPENCODE_PERMISSION='{\"external_directory\":\"allow\"}'; "
         val rules = (listOf("/tmp", "/tmp/**") + ocGranted).distinct().joinToString(",") { "\"${q(it)}\":\"allow\"" }
         return "export OPENCODE_PERMISSION='{\"external_directory\":{$rules}}'; "
     }
@@ -3232,15 +3237,22 @@ class ChatController(
         ocPending = found.map { OcPermRequest(it.first, it.second, cmd) }
     }
 
-    fun ocPermAllow() {
+    /** all — разрешить всё вне проекта до конца беседы. Если агент приостановлен, он продолжит сам, иначе отправится сообщение. */
+    fun ocPermAllow(all: Boolean = false) {
         val req = ocPending
         if (req.isEmpty()) return
         req.forEach { if (it.target !in ocGranted) ocGranted += it.target }
+        if (all) ocAllowSession = true
         ocPending = emptyList()
-        send("Пользователь разрешил доступ к: " + req.joinToString { it.target } + ". Повтори то, что не получилось.")
+        val msg = "Пользователь разрешил доступ к: " + req.joinToString { it.target } + ". Повтори то, что не получилось, и продолжай."
+        val w = ocPermWait
+        if (w != null) { ocRetryPrompt = msg; w.complete(true) } else send(msg)
     }
 
-    fun ocPermDeny() { ocPending = emptyList() }
+    fun ocPermDeny() {
+        ocPending = emptyList()
+        ocPermWait?.complete(false)
+    }
     fun ocPermReset() { ocGranted.clear() }
     fun setOcFallbackValue(v: String) { ocFallbackModel = v.trim(); settingsStore.rawPut("ocFallback", v.trim()) }
     private var ocFbUsed = false
@@ -3736,6 +3748,7 @@ class ChatController(
                 var lastOut = System.currentTimeMillis()
                 var idleItem: UiItem.Notice? = null
                 var hung = false
+                var permHold = false
                 // Если OpenCode молчит (например, сервер ответил 429 и он ждёт повтора), показываем, что приложение живо
                 val watchdog = launch {
                     while (true) {
@@ -3761,6 +3774,21 @@ class ChatController(
                         idleItem?.let { old -> withContext(Dispatchers.Main) { items.removeAll { it === old } }; idleItem = null }
                         if (clean.isBlank() && buf.isEmpty()) continue
                         buf.append(clean).append('\n')
+                        if (ocExtMode == "ask" && !ocAllowSession) {
+                            val pm = permRegex.find(clean)
+                            val target = pm?.groupValues?.get(2)?.trim()
+                            if (pm != null && pm.groupValues[1] == "external_directory" && target != null && target !in ocGranted) {
+                                // Не даём агенту продолжать без доступа: останавливаем запуск и ждём решения пользователя
+                                permHold = true
+                                withContext(Dispatchers.Main) {
+                                    val cmdText = ((items.lastOrNull { it is UiItem.Tool } as? UiItem.Tool)?.description).orEmpty()
+                                    ocPending = listOf(OcPermRequest("external_directory", target, cmdText))
+                                    if (!appVisible) Notifier.alert(app, "OpenCode просит доступ", target)
+                                }
+                                p.destroyForcibly()
+                                break
+                            }
+                        }
                         if (cards && !clean.trimStart().startsWith("{") && badJson) continue
                         badJson = false
                         if (cards && clean.trimStart().startsWith("{")) {
@@ -3790,6 +3818,20 @@ class ChatController(
                 val code = withContext(Dispatchers.IO) { p.waitFor() }
                 if (placeholder && cards && idx < items.size && (items[idx] as? UiItem.Assistant)?.text?.startsWith("⏳") == true) items.removeAt(idx)
                 setOcContinue(true)
+                if (permHold) {
+                    items += UiItem.Notice("⏸ Агент приостановлен: OpenCode просит доступ вне папки проекта. Реши в окне, времени сколько угодно.")
+                    val decision = kotlinx.coroutines.CompletableDeferred<Boolean>()
+                    ocPermWait = decision
+                    val ok = try { decision.await() } finally { ocPermWait = null; ocPending = emptyList() }
+                    if (ok) {
+                        retryScheduled = true
+                        ocRetryDelay = 0L
+                        items += UiItem.Notice("Доступ разрешён, агент продолжает.")
+                    } else {
+                        items += UiItem.Notice("Доступ отклонён. Агент остановлен: напиши, как действовать дальше.")
+                    }
+                    return@launch
+                }
                 val text = buf.toString() + (if (hung) "\nETIMEDOUT: нет ответа от сервера за 120 с" else "")
                 // Токены: точные из событий OpenCode, иначе оценка по длине текста (≈3 символа на токен)
                 if (ocTokSeen) recordUsage(ocTokIn, ocTokOut, ocTokCache)
@@ -3869,7 +3911,7 @@ class ChatController(
                         startService()
                         job = scope.launch {
                             kotlinx.coroutines.delay(ocRetryDelay)
-                            if (retryId == runId) { running = false; sendViaOpenCode("Продолжай с того места, где остановился.", isRetry = true) }
+                            if (retryId == runId) { running = false; val rp = ocRetryPrompt ?: "Продолжай с того места, где остановился."; ocRetryPrompt = null; sendViaOpenCode(rp, isRetry = true) }
                         }
                     } else {
                         val next = if (!lastRunFailed && queue.isNotEmpty()) queue.removeAt(0).also { saveQueue() } else null

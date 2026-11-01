@@ -607,7 +607,7 @@ fun ChatScreen(
             title = { Text("OpenCode просит доступ") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Он хочет выйти за пределы папки проекта. Решай без спешки: окно не закроется само.", style = MaterialTheme.typography.bodySmall)
+                    Text("Агент приостановлен и ждёт тебя: он хочет выйти за пределы папки проекта. Решай без спешки, окно не закроется само, чат не завершится.", style = MaterialTheme.typography.bodySmall)
                     req.forEach { Text("• ${it.target}", fontFamily = FontFamily.Monospace) }
                     if (req.first().command.isNotBlank()) {
                         Text("Команда:", style = MaterialTheme.typography.labelMedium)
@@ -619,6 +619,7 @@ fun ChatScreen(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     TextButton(onClick = { clip.setText(androidx.compose.ui.text.AnnotatedString(summary)) }) { Text("Скопировать описание, чтобы спросить нейросеть") }
+                    TextButton(onClick = { vm.ocPermAllow(all = true) }) { Text("Разрешить всё вне проекта до конца беседы") }
                 }
             },
             confirmButton = { TextButton(onClick = { vm.ocPermAllow() }) { Text("Разрешить и продолжить") } },
