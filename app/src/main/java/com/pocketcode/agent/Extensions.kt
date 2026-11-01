@@ -29,6 +29,9 @@ class Extensions(
     val globalDir: File,
     val pluginsDir: File,
 ) {
+    /** Имена выключенных навыков: агент их не видит, но в списке они остаются. */
+    var disabled: () -> Set<String> = { emptySet() }
+
     private fun roots(): List<Pair<String, File>> {
         val p = projectRoot()
         val list = mutableListOf(
@@ -40,7 +43,7 @@ class Extensions(
         return list
     }
 
-    fun skills(): List<Skill> {
+    fun skills(all: Boolean = false): List<Skill> {
         val out = LinkedHashMap<String, Skill>()
         for ((src, root) in roots()) {
             val candidates = mutableListOf<File>()
@@ -52,6 +55,7 @@ class Extensions(
                 val parsed = runCatching { parseFrontmatter(f.readText()) }.getOrNull() ?: continue
                 val name = (parsed.meta["name"] ?: dir.name).trim().replace(' ', '-')
                 if (name.isEmpty() || name in out) continue
+                if (!all && name in disabled()) continue
                 val desc = parsed.meta["description"]?.takeIf { it.isNotBlank() }
                     ?: parsed.body.lines().firstOrNull { it.isNotBlank() }?.trim('#', ' ')?.take(160).orEmpty()
                 out[name] = Skill(name, desc, dir, src)

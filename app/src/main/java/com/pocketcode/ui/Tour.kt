@@ -189,6 +189,9 @@ fun UpdatePromptDialog(vm: ChatController) {
                 Text("Новая сборка ${info.build}" + (if (info.size > 0) " (${info.size / 1048576} МБ)" else "") + ". У тебя ${vm.currentVersion}.")
                 if (info.notes.isNotBlank()) Text(info.notes.take(1500), style = MaterialTheme.typography.bodySmall)
                 Text("Скачивание пойдёт в фоне, можно пользоваться приложением. С включённым VPN обычно быстрее. Установишь, когда скачается.", style = MaterialTheme.typography.bodySmall)
+                Text("Заходи в нашу группу в Telegram и пиши пожелания: что добавить и что доработать.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                val ctxG = androidx.compose.ui.platform.LocalContext.current
+                TextButton(onClick = { runCatching { ctxG.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/pocket_code_github")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } }) { Text("Открыть группу") }
             }
         },
         confirmButton = { TextButton(onClick = { vm.dismissUpdatePrompt(); vm.installUpdate() }) { Text("Скачать") } },
@@ -209,7 +212,7 @@ fun WelcomeCard(vm: ChatController, onOpenGroup: () -> Unit) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Добро пожаловать в PocketCode", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
             Text(
-                "Вопросы, идеи и баги: группа в Telegram. Там же можно спросить, как настроить Linux или модель.",
+                "Заходи в нашу группу в Telegram и пиши пожелания: что добавить и что доработать. Там же можно задать вопрос или сообщить об ошибке.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

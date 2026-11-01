@@ -154,7 +154,7 @@ class ChatController(
 
     fun refreshExtensions() {
         scope.launch(Dispatchers.IO) {
-            val sk = runCatching { extensions.skills() }.getOrDefault(emptyList())
+            val sk = runCatching { extensions.skills(all = true) }.getOrDefault(emptyList())
             val cm = runCatching { extensions.commands() }.getOrDefault(emptyList())
             withContext(Dispatchers.Main) { skillList = sk; commandList = cm }
         }
@@ -294,7 +294,7 @@ class ChatController(
                 settingsStore.saveLinuxNoSeccomp(linuxEnv.noSeccomp)
                 settingsStore.rawPut("linuxNoLink", if (linuxEnv.noLink) "1" else "0")
                 linuxInstalled = true
-                runCatching { linuxEnv.configureBridge(hostMode == "ask") }
+                runCatching { linuxEnv.configureBridge(hostMode == "ask", toolsNotes()) }
                 runCatching { linuxEnv.configureGit(settings.gitName, settings.gitEmail, settings.githubToken) }
                 agent = null
                 linuxStatus = r + ". Теперь bash работает в Linux."
@@ -343,7 +343,7 @@ class ChatController(
     fun setHostModeValue(v: String) {
         hostMode = v
         settingsStore.rawPut("hostMode", v)
-        runCatching { linuxEnv.configureBridge(v == "ask") }
+        runCatching { linuxEnv.configureBridge(v == "ask", toolsNotes()) }
         if (v != "ask") hostPending = emptyList()
     }
 
@@ -416,7 +416,7 @@ class ChatController(
 
     init {
         if (!isTab) {
-            runCatching { linuxEnv.configureBridge(hostMode == "ask") }
+            runCatching { linuxEnv.configureBridge(hostMode == "ask", toolsNotes()) }
             startBridge()
         }
     }
@@ -1967,6 +1967,123 @@ class ChatController(
         f.writeText(item.content)
         agent = null
         refreshExtensions()
+    }
+
+    // ---------- включение, просмотр и удаление навыков ----------
+
+    private var skillsOff by mutableStateOf((settingsStore.rawGet("skillsOff") ?: "").split(',').filter { it.isNotBlank() }.toSet())
+
+    init { extensions.disabled = { skillsOff } }
+
+    fun skillEnabled(name: String) = name !in skillsOff
+
+    fun toggleSkill(name: String) {
+        skillsOff = if (name in skillsOff) skillsOff - name else skillsOff + name
+        settingsStore.rawPut("skillsOff", skillsOff.joinToString(","))
+        agent = null
+        refreshExtensions()
+    }
+
+    fun skillText(s: Skill): String = runCatching { extensions.readSkill(s) }.getOrElse { "Не удалось прочитать: ${it.message}" }
+
+    /** Удаляет навык, созданный пользователем (для проекта или общий). Навыки из плагинов удаляются вместе с плагином. */
+    fun deleteSkill(s: Skill): Boolean {
+        if (s.source != "проект" && s.source != "общие") return false
+        if (s.dir.parentFile?.name != "skills") return false
+        s.dir.deleteRecursively()
+        agent = null
+        refreshExtensions()
+        return true
+    }
+
+    // ---------- инструменты командной строки для экономии токенов ----------
+
+    class ExtraTool(val id: String, val title: String, val about: String, val warn: String, val notes: String)
+
+    val extraTools = listOf(
+        ExtraTool(
+            "trail", "Trail Code",
+            "Строит карту кода проекта и хранит заметки о решениях, чтобы агент не перечитывал лишнее и тратил меньше токенов. Бесплатный, без аккаунта.",
+            "Экспериментально. Ставится через npm и собирает часть модулей на телефоне, это может занять 10–20 минут и не получиться на твоей модели. Отправку анонимной статистики приложение выключает.",
+            "## Trail Code\nВ Linux установлен `trail`: карта кода проекта и заметки о решениях. Перед тем как читать много файлов подряд, один раз выполни `trail --help` и используй карту кода и заметки, если в проекте есть папка .trail.",
+        ),
+        ExtraTool(
+            "jevgrep", "jevgrep (команда jg)",
+            "Ищет код по смыслу: на вопрос «где в проекте проверяется вход» возвращает нужные файлы и фрагменты. Бесплатный (MIT).",
+            "Экспериментально. Нужен Node 22 или новее (в нашем Alpine 3.20 только Node 20, ниже есть кнопка обновления) и ключ API модели для поиска: OpenRouter, OpenCode Zen и др. Подробности: jg --help в терминале.",
+            "## jevgrep (jg)\nКоманда `jg` ищет код по смыслу. Один раз выполни `jg --help`, затем вместо перебора файлов задавай `jg` вопрос о том, где в проекте находится нужная логика: она вернёт файлы и фрагменты кода. Для работы нужен ключ API, настроенный пользователем.",
+        ),
+    )
+
+    val toolStatus = androidx.compose.runtime.mutableStateMapOf<String, String>()
+    var toolBusy by mutableStateOf<String?>(null)
+        private set
+    private var toolsOn by mutableStateOf((settingsStore.rawGet("toolsOn") ?: "").split(',').filter { it.isNotBlank() }.toSet())
+    fun toolInstalled(id: String) = id in toolsOn
+
+    /** Кусок AGENTS.md для OpenCode: что установлено и как этим пользоваться. */
+    fun toolsNotes(): String = extraTools.filter { it.id in toolsOn }.joinToString("\n\n") { it.notes }
+
+    private fun toolCmd(id: String, action: String): Pair<String, Long> {
+        val ver = """OUT=${'$'}( (%s) 2>&1 ); RC=${'$'}?; echo "${'$'}OUT" | head -n 3; [ ${'$'}RC -eq 0 ] && echo PC_OK"""
+        return when (id to action) {
+            "trail" to "install" -> ("apk add --no-cache nodejs npm git python3 make g++ 2>&1 | tail -n 3; npm install -g @trailhq/trail-code 2>&1 | tail -n 20; " + ver.format("trail --version || graft --version")) to 2400L
+            "trail" to "check" -> ver.format("trail --version || graft --version") to 60L
+            "trail" to "init" -> "cd /work && (trail init </dev/null 2>&1 | tail -n 30); echo PC_OK" to 300L
+            "trail" to "remove" -> "npm uninstall -g @trailhq/trail-code 2>&1 | tail -n 3; echo PC_OK" to 300L
+            "jevgrep" to "install" -> ("command -v node >/dev/null || apk add --no-cache nodejs npm >/dev/null 2>&1; NV=${'$'}(node -v 2>/dev/null | sed 's/^v\\([0-9]*\\).*/\\1/'); " +
+                "if [ -z \"${'$'}NV\" ] || [ \"${'$'}NV\" -lt 22 ]; then echo \"NEEDS_NODE22: нужен Node 22 или новее, сейчас: ${'$'}{NV:-нет}\"; exit 0; fi; " +
+                "npm install -g @dzhng/jevgrep 2>&1 | tail -n 20; " + ver.format("jg --version || jg --help")) to 1500L
+            "jevgrep" to "check" -> ver.format("jg --version || jg --help") to 60L
+            "jevgrep" to "node22" -> ("sed -i 's#/alpine/v3\\.[0-9]*/#/alpine/v3.21/#g' /etc/apk/repositories; apk update 2>&1 | tail -n 2; apk upgrade --available 2>&1 | tail -n 5; " +
+                "apk add --no-cache nodejs npm 2>&1 | tail -n 3; node -v && echo PC_OK") to 3000L
+            "jevgrep" to "remove" -> "npm uninstall -g @dzhng/jevgrep 2>&1 | tail -n 3; echo PC_OK" to 300L
+            else -> "echo неизвестное действие" to 10L
+        }
+    }
+
+    fun toolAction(id: String, action: String) {
+        if (toolBusy != null) return
+        if (!linuxInstalled) { toolStatus[id] = "Сначала установи Linux: Ещё → Среда Linux."; return }
+        toolBusy = id
+        toolStatus[id] = "Выполняю… это может занять несколько минут, можно выйти с экрана."
+        scope.launch {
+            val (cmd, to) = toolCmd(id, action)
+            val out = try {
+                linuxRun(proxyEnv() + "export DO_NOT_TRACK=1; " + cmd, to)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                "Ошибка: ${e.message}"
+            }
+            val ok = out.contains("PC_OK")
+            val shown = Secrets.mask(out.replace("PC_OK", "").trim()).takeLast(1200)
+            toolStatus[id] = when {
+                out.contains("NEEDS_NODE22") -> shown + "\n\nНажми «Поставить Node 22»."
+                ok && action == "install" -> "Установлено и запускается.\n$shown"
+                ok && action == "check" -> "Работает.\n$shown"
+                ok && action == "remove" -> "Удалено."
+                ok -> shown.ifBlank { "Готово." }
+                else -> "Не получилось. Вот что ответил Linux:\n$shown"
+            }
+            if (ok && action == "install") {
+                toolsOn = toolsOn + id
+                settingsStore.rawPut("toolsOn", toolsOn.joinToString(","))
+                runCatching { linuxEnv.configureBridge(hostMode == "ask", toolsNotes()) }
+                val t = extraTools.first { it.id == id }
+                installCatalogItem(CatalogItem(true, id, t.title, t.about,
+                    "---\nname: $id\ndescription: ${t.about.take(150).replace('\n', ' ')}\n---\n\n${t.notes.substringAfter('\n')}\n"), true)
+            }
+            if (ok && action == "remove") {
+                toolsOn = toolsOn - id
+                settingsStore.rawPut("toolsOn", toolsOn.joinToString(","))
+                runCatching { linuxEnv.configureBridge(hostMode == "ask", toolsNotes()) }
+                File(extensions.globalDir, "skills/$id").deleteRecursively()
+                agent = null
+                refreshExtensions()
+            }
+            toolBusy = null
+        }
     }
 
     fun isInstalled(item: CatalogItem): Boolean {

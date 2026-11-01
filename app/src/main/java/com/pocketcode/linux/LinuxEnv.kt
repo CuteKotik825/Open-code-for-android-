@@ -220,7 +220,7 @@ class LinuxEnv(private val context: Context) {
      * Мост Linux → Android: команда `pcroot` кладёт запрос в /tmp/pcbridge, приложение показывает окно подтверждения
      * и возвращает вывод команды, выполненной на телефоне (su). Инструкция для OpenCode пишется только при включённом мосте.
      */
-    fun configureBridge(enabled: Boolean) {
+    fun configureBridge(enabled: Boolean, extra: String = "") {
         if (!isInstalled()) return
         val bin = File(rootfs, "usr/local/bin").apply { mkdirs() }
         val script = File(bin, "pcroot")
@@ -229,7 +229,8 @@ class LinuxEnv(private val context: Context) {
         File(rootfs, "tmp/pcbridge").mkdirs()
         val cfg = File(rootfs, "root/.config/opencode").apply { mkdirs() }
         val md = File(cfg, "AGENTS.md")
-        if (enabled) md.writeText(AGENTS_MD) else md.delete()
+        val text = (if (enabled) AGENTS_MD else "") + (if (extra.isNotBlank()) "\n" + extra else "")
+        if (text.isBlank()) md.delete() else md.writeText(text)
     }
 
     /** Прописывает автора коммитов и токен GitHub для настоящего git внутри Linux. */
