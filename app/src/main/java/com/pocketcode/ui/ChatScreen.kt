@@ -1054,7 +1054,7 @@ private fun toolIcon(name: String): String = when (name) {
 
 
 /** Предупреждение об опасной команде в окне подтверждения. */
-private fun dangerNote(desc: String): String? {
+internal fun dangerNote(desc: String): String? {
     val d = desc.lowercase()
     val rules = listOf(
         Regex("""rm\s+(-\w*r\w*f|-\w*f\w*r|-r\s+-f|-f\s+-r)""") to "Удаление файлов без возврата (rm -rf).",

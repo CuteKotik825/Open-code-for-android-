@@ -71,7 +71,7 @@ import com.pocketcode.ui.ProjectsScreen
 import com.pocketcode.ui.SessionsScreen
 import com.pocketcode.ui.SettingsScreen
 
-private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS, REMOTE, DIFF, SEARCH, HUB_PROJECT, HUB_AGENT, HUB_MORE, FIND, MODELS, LINUX, UPDATE, BACKUP }
+private enum class Screen { CHAT, SETTINGS, SESSIONS, PROJECTS, FILES, DEVICES, PLUGINS, DIAG, COMPARE, CONTEXT, TERMINAL, GIT, OCSESSIONS, REMOTE, DIFF, SEARCH, HUB_PROJECT, HUB_AGENT, HUB_MORE, FIND, ROOT, MODELS, LINUX, UPDATE, BACKUP }
 
 class MainActivity : ComponentActivity() {
     private val controller: ChatController
@@ -188,6 +188,7 @@ class MainActivity : ComponentActivity() {
                         dismissButton = { androidx.compose.material3.TextButton(onClick = { crashFile.delete(); crashed = false }) { Text("Закрыть") } },
                     )
                 }
+                com.pocketcode.ui.HostBridgeDialog(pocketApp.controller)
                 if (pocketApp.controller.tourDone && pocketApp.controller.updatePrompt && !crashed) com.pocketcode.ui.UpdatePromptDialog(pocketApp.controller)
                 var screen by remember { mutableStateOf(Screen.CHAT) }
                 var backTo by remember { mutableStateOf(Screen.CHAT) }
@@ -275,6 +276,7 @@ class MainActivity : ComponentActivity() {
                                 com.pocketcode.ui.hubHeader("Система"),
                                 com.pocketcode.ui.HubItem(Icons.Default.Settings, "Настройки", "Тема и вид, безопасность, правила, общие параметры") { openFrom(Screen.HUB_MORE, Screen.SETTINGS) },
                                 com.pocketcode.ui.HubItem(Icons.Default.PlayArrow, "Среда Linux", "Установка мини-Linux, python, git, node", if (!pocketApp.controller.linuxInstalled && pocketApp.controller.linuxSupported) "не установлен" else null) { openFrom(Screen.HUB_MORE, Screen.LINUX) },
+                                com.pocketcode.ui.HubItem(Icons.Default.Warning, "Root и Android", "Как дать агенту данные с телефона: четыре способа", if (pocketApp.controller.hostMode == "ask") "мост вкл" else null) { openFrom(Screen.HUB_MORE, Screen.ROOT) },
                                 com.pocketcode.ui.HubItem(Icons.Default.Phone, "Устройства", "ADB, root, подключённые устройства") { openFrom(Screen.HUB_MORE, Screen.DEVICES) },
                                 com.pocketcode.ui.HubItem(Icons.Default.Refresh, "Синхронизация и пульт", "Файлы между телефонами и задачи на другой телефон") { openFrom(Screen.HUB_MORE, Screen.REMOTE) },
                                 com.pocketcode.ui.hubHeader("Приложение"),
@@ -426,6 +428,10 @@ class MainActivity : ComponentActivity() {
                     Screen.SESSIONS -> {
                         BackHandler { screen = backTo }
                         SessionsScreen(vm, onBack = { screen = backTo })
+                    }
+                    Screen.ROOT -> {
+                        BackHandler { screen = backTo }
+                        com.pocketcode.ui.RootScreen(pocketApp.controller, onBack = { screen = backTo }, onToChat = { screen = Screen.CHAT })
                     }
                     Screen.LINUX -> {
                         BackHandler { screen = backTo }

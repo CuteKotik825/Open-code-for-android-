@@ -19,6 +19,47 @@ import java.util.concurrent.TimeUnit
  * так как Android разрешает запускать только файлы из папки нативных библиотек).
  * Rootfs скачивается при установке, а не вшит в APK.
  */
+private const val PCROOT = """#!/bin/sh
+# pcroot: выполнить команду на Android (вне Linux) через приложение PocketCode. Пользователь подтверждает каждый раз.
+D=/tmp/pcbridge
+mkdir -p "§D"
+if [ "§1" = "--wait" ]; then
+  ID="§2"
+else
+  if [ -z "§1" ]; then echo "usage: pcroot 'команда' | pcroot --wait ID"; exit 2; fi
+  ID="§(date +%s)-§§-§(od -An -N2 -tu2 /dev/urandom | tr -d ' ')"
+  printf '%s' "§1" > "§D/§ID.tmp" && mv "§D/§ID.tmp" "§D/§ID.req"
+fi
+i=0
+while [ ! -f "§D/§ID.out" ] && [ §i -lt 330 ]; do sleep 0.3 2>/dev/null || sleep 1; i=§((i+1)); done
+if [ -f "§D/§ID.out" ]; then
+  cat "§D/§ID.out"
+  rc=§(cat "§D/§ID.rc" 2>/dev/null)
+  rm -f "§D/§ID".*
+  exit §{rc:-0}
+fi
+echo "PENDING §ID: пользователь ещё не ответил в приложении PocketCode. Подожди и вызови: pcroot --wait §ID"
+exit 3
+"""
+
+private const val AGENTS_MD = """# PocketCode: как выйти на сам Android
+
+Ты работаешь внутри Linux-песочницы (proot) в приложении PocketCode на телефоне. Это НЕ Android: здесь нет /system, dumpsys, su, adb, а uid=0 фиктивный. Напрямую системные данные телефона отсюда не прочитать.
+
+Чтобы выполнить команду на самом телефоне (например `dumpsys audio`, `getprop`, `logcat -d`, `settings get`), используй:
+
+    pcroot 'команда'
+
+Команда уходит в приложение. Пользователь видит её в окне подтверждения и сам решает, выполнять ли её от root (Magisk su). Вывод вернётся как обычный вывод команды.
+
+Правила:
+1. Сначала только диагностика и чтение. Одна команда за раз, коротко объясни пользователю, зачем она.
+2. Ответ `PENDING <id>` значит, что пользователь ещё решает (ему нужно время). Подожди и вызови `pcroot --wait <id>`. Не отправляй ту же команду заново.
+3. Ответ, начинающийся с `Отказано`, значит запрет: не обходи его, предложи другой путь.
+4. Команды, которые меняют систему (settings put, setprop, pm disable, rm, kill), сначала опиши в чате: что сделает и чем рискует. Выполняй только после согласия пользователя.
+5. Для работы с файлами проекта (/work) root не нужен.
+"""
+
 class LinuxEnv(private val context: Context) {
     private val base = File(context.filesDir, "linux")
     val rootfs = File(base, "rootfs")
@@ -173,6 +214,22 @@ class LinuxEnv(private val context: Context) {
         } catch (e: Exception) {
             "Ошибка запуска: ${e.message}"
         }
+    }
+
+    /**
+     * Мост Linux → Android: команда `pcroot` кладёт запрос в /tmp/pcbridge, приложение показывает окно подтверждения
+     * и возвращает вывод команды, выполненной на телефоне (su). Инструкция для OpenCode пишется только при включённом мосте.
+     */
+    fun configureBridge(enabled: Boolean) {
+        if (!isInstalled()) return
+        val bin = File(rootfs, "usr/local/bin").apply { mkdirs() }
+        val script = File(bin, "pcroot")
+        script.writeText(PCROOT.replace('§', '$'))
+        script.setReadable(true, false); script.setWritable(true, true); script.setExecutable(true, false)
+        File(rootfs, "tmp/pcbridge").mkdirs()
+        val cfg = File(rootfs, "root/.config/opencode").apply { mkdirs() }
+        val md = File(cfg, "AGENTS.md")
+        if (enabled) md.writeText(AGENTS_MD) else md.delete()
     }
 
     /** Прописывает автора коммитов и токен GitHub для настоящего git внутри Linux. */

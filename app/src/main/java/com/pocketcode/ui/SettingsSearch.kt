@@ -48,6 +48,7 @@ val SETTING_INDEX = listOf(
     SettingEntry("Доступ OpenCode вне проекта / root", "Агент → OpenCode", "доступ вне папки проекта root рут proc разрешить запретить спрашивать external directory", "OCSESSIONS"),
     SettingEntry("Автосжатие беседы OpenCode", "Агент → OpenCode", "сжатие compact автосжатие контекст беседа", "OCSESSIONS"),
     SettingEntry("Среда Linux", "Ещё → Среда Linux", "linux линукс alpine proot установить bash python git node apk", "LINUX"),
+    SettingEntry("Root и доступ агента к Android", "Ещё → Root и Android", "root рут pcroot агент android выйти система dumpsys magisk su мост диагностика звук уведомления команда", "ROOT"),
     SettingEntry("Устройства, ADB и root", "Ещё → Устройства", "adb root рут устройство подключить usb беспроводная отладка", "DEVICES"),
     SettingEntry("Синхронизация и пульт", "Ещё → Синхронизация", "синхронизация пульт удалённо другой телефон файлы", "REMOTE"),
     SettingEntry("Обновления", "Ещё → Обновления", "обновление версия сборка проверить обновить автопроверка", "UPDATE"),

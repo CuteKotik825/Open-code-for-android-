@@ -294,6 +294,7 @@ class ChatController(
                 settingsStore.saveLinuxNoSeccomp(linuxEnv.noSeccomp)
                 settingsStore.rawPut("linuxNoLink", if (linuxEnv.noLink) "1" else "0")
                 linuxInstalled = true
+                runCatching { linuxEnv.configureBridge(hostMode == "ask") }
                 runCatching { linuxEnv.configureGit(settings.gitName, settings.gitEmail, settings.githubToken) }
                 agent = null
                 linuxStatus = r + ". Теперь bash работает в Linux."
@@ -326,6 +327,172 @@ class ChatController(
                 linuxBusy = false
             }
         }
+    }
+
+    // ---------- root и доступ к Android ----------
+
+    class HostReq(val id: String, val command: String)
+
+    /** Запросы агента выполнить команду на самом телефоне: ждут решения пользователя (без таймера). */
+    var hostPending by mutableStateOf<List<HostReq>>(emptyList())
+        private set
+
+    /** off — мост выключен (по умолчанию), ask — каждый запрос подтверждается вручную. */
+    var hostMode by mutableStateOf(settingsStore.rawGet("hostMode")?.takeIf { it == "ask" } ?: "off")
+        private set
+    fun setHostModeValue(v: String) {
+        hostMode = v
+        settingsStore.rawPut("hostMode", v)
+        runCatching { linuxEnv.configureBridge(v == "ask") }
+        if (v != "ask") hostPending = emptyList()
+    }
+
+    private val hostSeen = HashSet<String>()
+    private val bridgeDir get() = File(linuxEnv.rootfs, "tmp/pcbridge")
+
+    private fun bridgeReply(id: String, text: String, rc: Int) {
+        runCatching {
+            val d = bridgeDir.apply { mkdirs() }
+            File(d, "$id.rc").writeText(rc.toString())
+            val tmp = File(d, "$id.out.tmp")
+            tmp.writeText(text)
+            tmp.renameTo(File(d, "$id.out"))
+        }
+    }
+
+    private fun startBridge() {
+        scope.launch {
+            while (true) {
+                delay(900)
+                if (!linuxInstalled) continue
+                val reqs = withContext(Dispatchers.IO) {
+                    val d = bridgeDir
+                    val now = System.currentTimeMillis()
+                    d.listFiles()?.filter { now - it.lastModified() > 3_600_000 }?.forEach { runCatching { it.delete() } }
+                    d.listFiles { f -> f.name.endsWith(".req") }?.mapNotNull { f ->
+                        val id = f.name.removeSuffix(".req")
+                        if (!hostSeen.add(id)) return@mapNotNull null
+                        val cmd = runCatching { f.readText().take(20_000) }.getOrDefault("")
+                        runCatching { f.delete() }
+                        HostReq(id, cmd)
+                    }.orEmpty()
+                }
+                for (r in reqs) {
+                    if (hostMode != "ask") {
+                        bridgeReply(r.id, "Отказано: мост к Android выключен в настройках PocketCode (Ещё → Root и Android).", 1)
+                    } else {
+                        hostPending = hostPending + r
+                        if (!appVisible) Notifier.alert(app, "Агент просит выполнить команду на телефоне", r.command.take(160))
+                    }
+                }
+            }
+        }
+    }
+
+    private fun runHost(r: HostReq, asRoot: Boolean) {
+        scope.launch {
+            val out = try {
+                if (asRoot) rootShell.run(r.command, File("/"), 120)
+                else com.pocketcode.tools.runProcess(ProcessBuilder("sh", "-c", r.command).redirectErrorStream(true), 120)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                "Ошибка выполнения: ${e.message}"
+            }
+            bridgeReply(r.id, Secrets.mask(out.take(60_000)).ifBlank { "(пустой вывод)" }, 0)
+        }
+    }
+
+    /** mode: root — от root (su), shell — обычным shell приложения, иначе отклонить. */
+    fun hostAnswer(r: HostReq, mode: String) {
+        hostPending = hostPending.filter { it.id != r.id }
+        Notifier.clearAlert(app)
+        when (mode) {
+            "root" -> runHost(r, true)
+            "shell" -> runHost(r, false)
+            else -> bridgeReply(r.id, "Отказано: пользователь отклонил команду.", 1)
+        }
+    }
+
+    init {
+        if (!isTab) {
+            runCatching { linuxEnv.configureBridge(hostMode == "ask") }
+            startBridge()
+        }
+    }
+
+    /** Наборы команд для сбора диагностики телефона через su. Показываются пользователю до запуска. */
+    val diagPresets: Map<String, List<Pair<String, String>>> = mapOf(
+        "Звук и уведомления" to listOf(
+            "id" to "id",
+            "android" to "getprop ro.build.version.release; getprop ro.product.model; getprop ro.build.display.id",
+            "audio" to "dumpsys audio | head -400",
+            "media_session" to "dumpsys media_session | head -300",
+            "notification" to "dumpsys notification | head -300",
+            "log-audio" to "logcat -d -t 1500 | grep -i -E 'audio|focus|duck|volume|notification|media' | tail -300",
+        ),
+        "Общая: батарея, память, ошибки" to listOf(
+            "id" to "id",
+            "props" to "getprop | head -150",
+            "battery" to "dumpsys battery",
+            "meminfo" to "dumpsys meminfo | head -80",
+            "disk" to "df -h",
+            "log-errors" to "logcat -d -t 600 '*:E' | tail -250",
+        ),
+    )
+
+    var rootBusy by mutableStateOf(false)
+        private set
+    var rootMsg by mutableStateOf<String?>(null)
+        private set
+    var rootOut by mutableStateOf<String?>(null)
+        private set
+
+    private fun rootDir(): File = File(projectRoot, "pc-diagnostics").apply { mkdirs() }
+
+    /** Снимает выбранный набор диагностики через su и кладёт файлы в папку проекта pc-diagnostics. */
+    fun runRootDiag(name: String) {
+        val cmds = diagPresets[name] ?: return
+        if (rootBusy) return
+        rootBusy = true
+        rootMsg = "Собираю «$name»…"
+        scope.launch {
+            try {
+                var ok = 0
+                val dir = rootDir()
+                for ((file, cmd) in cmds) {
+                    val out = try { rootShell.run(cmd, File("/"), 60) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Throwable) { "Ошибка: ${e.message}" }
+                    runCatching { File(dir, "$file.txt").writeText(Secrets.mask(out.take(200_000))) }
+                    if (out.isNotBlank() && !out.startsWith("Ошибка")) ok++
+                }
+                rootMsg = "Готово: $ok из ${cmds.size} команд дали вывод. Файлы: ${dir.name}/ в проекте «$currentProject»." +
+                    (if (ok == 0) " Похоже, root не выдан приложению: открой Magisk → Суперпользователь и разреши PocketCode." else "")
+            } catch (e: Throwable) {
+                rootMsg = "Не получилось: ${e.message}"
+            } finally {
+                rootBusy = false
+            }
+        }
+    }
+
+    /** Выполняет одну команду от root по явной кнопке пользователя; вывод показывается и сохраняется в проект. */
+    fun runRootOnce(cmd: String) {
+        if (rootBusy || cmd.isBlank()) return
+        rootBusy = true
+        rootOut = "Выполняю…"
+        scope.launch {
+            val out = try { rootShell.run(cmd, File("/"), 120) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Throwable) { "Ошибка: ${e.message}" }
+            val masked = Secrets.mask(out.take(60_000)).ifBlank { "(пустой вывод)" }
+            runCatching { File(rootDir(), "last-command.txt").writeText("$ " + cmd + "\n\n" + masked) }
+            rootOut = masked
+            rootBusy = false
+        }
+    }
+
+    /** Последний блок кода из ответа агента: его обычно и предлагают выполнить. */
+    fun lastCodeBlock(): String {
+        val text = (items.lastOrNull { it is UiItem.Assistant } as? UiItem.Assistant)?.text ?: return ""
+        return Regex("```[A-Za-z]*\\n(.*?)```", RegexOption.DOT_MATCHES_ALL).findAll(text).lastOrNull()?.groupValues?.get(1)?.trim().orEmpty()
     }
 
     fun removeLinux() {
@@ -1994,7 +2161,7 @@ class ChatController(
 
     private val backupPrefKeys = listOf(
         "syncRepo", "syncProjects", "syncInterval", "syncHost", "ocFallback", "ocAutoSwitch", "ocAutoCompact", "ocRateRetryMin",
-        "ocBudget", "ocListLim", "ocShowLim", "ocFresh", "ocExtMode", "ocModel", "ocCards", "themeMode", "palette", "amoled", "templates", "stars", "ocPins", "ocTitles", "bigInput",
+        "hostMode", "ocBudget", "ocListLim", "ocShowLim", "ocFresh", "ocExtMode", "ocModel", "ocCards", "themeMode", "palette", "amoled", "templates", "stars", "ocPins", "ocTitles", "bigInput",
     )
 
     private fun cryptKey(password: String, salt: ByteArray): javax.crypto.spec.SecretKeySpec {
