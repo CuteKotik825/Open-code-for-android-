@@ -117,7 +117,7 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                             "2. Сервис должен быть «OpenAI-совместимым» — так обычно написано в его инструкции. Если есть готовая кнопка ниже — нажми её, адрес подставится сам.\n" +
                             "3. Впиши название (любое, латиницей), адрес, модель и ключ и нажми «Сохранить провайдер».\n" +
                             "4. Нажми «Проверить провайдера» — если пришёл ответ, всё работает. Потом включи режим OpenCode в чате.\n" +
-                            "Если у сервиса лимит запросов (например, 1 в минуту) — отметь галочку «через ограничитель» и выбери частоту в Настройках → Модели → «Частота запросов».\n" +
+                            "Если у сервиса лимит запросов (например, 1 в минуту) — выбери частоту в Модели → «Частота запросов», она применится ко всем провайдерам сама.\n" +
                             "Осторожно: весь код и ключ уходят этому сервису. Бесплатные и малоизвестные прокси могут читать и хранить твои данные — не отправляй им секреты и закрытые проекты.",
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -146,12 +146,11 @@ fun OcSessionsScreen(vm: ChatController, onBack: () -> Unit, onOpened: () -> Uni
                         value = cKey, onValueChange = { cKey = it }, singleLine = true, label = { Text("Ключ") }, modifier = Modifier.fillMaxWidth(),
                         visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                     )
-                    var cLim by remember { mutableStateOf(false) }
-                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        androidx.compose.material3.Checkbox(checked = cLim, onCheckedChange = { cLim = it })
-                        Text("Через ограничитель частоты (лимит ${if (vm.rpmLimit > 0) "${vm.rpmLimit}/мин" else "пока не выбран"})", style = MaterialTheme.typography.bodySmall)
-                    }
-                    Button(onClick = { cMsg = vm.ocCustomSet(cId, cUrl, cModel, cKey, cLim); cKey = "" }, enabled = cUrl.isNotBlank() && cModel.isNotBlank()) { Text("Сохранить провайдер") }
+                    Text(
+                        if (vm.rpmLimit > 0) "Лимит запросов: ${vm.rpmLimit} в минуту — применяется к этому провайдеру автоматически. Менять: Модели → «Частота запросов»." else "Лимит запросов выключен. Если у сервиса есть ограничение (например, 1 запрос в минуту), включи его в Модели → «Частота запросов» — он подхватится сам.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Button(onClick = { cMsg = vm.ocCustomSet(cId, cUrl, cModel, cKey); cKey = "" }, enabled = cUrl.isNotBlank() && cModel.isNotBlank()) { Text("Сохранить провайдер") }
                     if (vm.ocCustomProviders.isNotEmpty()) OutlinedButton(
                         onClick = { cBusy = true; cMsg = "Проверяю…"; uiScope.launch { cMsg = vm.ocCustomTest(vm.ocCustomProviders.first()); cBusy = false } },
                         enabled = !cBusy,

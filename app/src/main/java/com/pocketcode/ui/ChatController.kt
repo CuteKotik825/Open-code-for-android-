@@ -2961,13 +2961,43 @@ class ChatController(
     /** Запросов к модели в минуту (0 = без ограничений). Общий лимит для агента приложения и для локального прокси. */
     var rpmLimit by mutableIntStateOf(settingsStore.rawGet("rpmLimit")?.toIntOrNull() ?: 0)
         private set
-    fun setRpmLimitValue(v: Int) { rpmLimit = v; RateGate.perMinute = v; settingsStore.rawPut("rpmLimit", v.toString()) }
+    fun setRpmLimitValue(v: Int) { rpmLimit = v; RateGate.perMinute = v; settingsStore.rawPut("rpmLimit", v.toString()); ocApplyRate() }
+
+    private fun rateUnwrap(u: String): String {
+        val m = Regex("^http://127\\.0\\.0\\.1:${com.pocketcode.llm.RateProxy.PORT}/t/[^/]+/([A-Za-z0-9_-]+)$").find(u.trimEnd('/')) ?: return u
+        return runCatching { String(java.util.Base64.getUrlDecoder().decode(m.groupValues[1])) }.getOrDefault(u)
+    }
+
+    /** Автоматически: при включённом лимите все свои провайдеры OpenCode идут через ограничитель, без лимита — напрямую. */
+    fun ocApplyRate() {
+        runCatching {
+            val cfg = ocConfigRead()
+            val prov = (cfg["provider"] as? kotlinx.serialization.json.JsonObject)?.toMutableMap() ?: return
+            var changed = false
+            for ((id, v) in prov.toMap()) {
+                val o = v as? kotlinx.serialization.json.JsonObject ?: continue
+                val opts = o["options"] as? kotlinx.serialization.json.JsonObject ?: continue
+                val cur = (opts["baseURL"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: continue
+                val up = rateUnwrap(cur)
+                val want = if (rpmLimit > 0) { rateProxyRestart(); rateWrapUrl(up) } else up
+                if (want != cur) {
+                    val no = opts.toMutableMap(); no["baseURL"] = kotlinx.serialization.json.JsonPrimitive(want)
+                    val nv = o.toMutableMap(); nv["options"] = kotlinx.serialization.json.JsonObject(no)
+                    prov[id] = kotlinx.serialization.json.JsonObject(nv); changed = true
+                }
+            }
+            if (changed) {
+                cfg["provider"] = kotlinx.serialization.json.JsonObject(prov)
+                ocConfigFile.writeText(kotlinx.serialization.json.JsonObject(cfg).toString())
+            }
+        }
+    }
 
     private val rateToken: String = settingsStore.rawGet("rateToken") ?: java.util.UUID.randomUUID().toString().replace("-", "").take(16).also { settingsStore.rawPut("rateToken", it) }
     private val rateProxy = com.pocketcode.llm.RateProxy(rateToken)
     var rateProxyOk by mutableStateOf(false)
         private set
-    init { RateGate.perMinute = rpmLimit; rateProxyOk = rateProxy.start() }
+    init { RateGate.perMinute = rpmLimit; rateProxyOk = rateProxy.start(); if (rpmLimit > 0) ocApplyRate() }
 
     /** Адрес сервиса, завёрнутый в локальный прокси с лимитом. Его вставляют как Base URL в Claude Code / OpenCode / что угодно. */
     fun rateWrapUrl(upstream: String): String = com.pocketcode.llm.RateProxy.wrap(rateToken, upstream.trim())
@@ -3334,8 +3364,10 @@ class ChatController(
     /** Прокси для программ в Linux (OpenCode, терминал): http://host:port */
     private fun proxyEnv(): String {
         val v = netProxy.trim().replace("'", "")
-        if (v.isEmpty()) return ""
-        return "export HTTPS_PROXY='$v' HTTP_PROXY='$v' https_proxy='$v' http_proxy='$v'; "
+        // Лимит частоты: Claude Code ходит к Anthropic через локальный ограничитель (если адрес не задан вручную)
+        val rate = if (rpmLimit > 0) "[ -z \"\$ANTHROPIC_BASE_URL\" ] && export ANTHROPIC_BASE_URL='${rateWrapUrl("https://api.anthropic.com")}'; " else ""
+        if (v.isEmpty()) return rate
+        return rate + "export HTTPS_PROXY='$v' HTTP_PROXY='$v' https_proxy='$v' http_proxy='$v'; "
     }
     /** Доступ OpenCode вне папки проекта: deny — запретить, ask — спрашивать каждый раз, allow — разрешить всё. */
     var ocExtMode by mutableStateOf(settingsStore.rawGet("ocExtMode") ?: "ask")
@@ -3622,7 +3654,8 @@ class ChatController(
         val url0 = baseUrl.trim().trimEnd('/')
         val m = model.trim()
         if (id.isEmpty() || !url0.startsWith("http") || m.isEmpty()) return "Нужны название (латиницей), адрес https://… и модель."
-        val url = if (limited && !url0.startsWith("http://127.0.0.1:${com.pocketcode.llm.RateProxy.PORT}/")) { rateProxyRestart(); rateWrapUrl(url0) } else url0
+        val upstream = rateUnwrap(url0)
+        val url = if (rpmLimit > 0) { rateProxyRestart(); rateWrapUrl(upstream) } else upstream
         if (!linuxEnv.isInstalled()) return "Сначала установи Linux."
         return try {
             val cfg = ocConfigRead()
@@ -3649,7 +3682,7 @@ class ChatController(
             if (useKey.isNotEmpty()) Secrets.known = Secrets.known + useKey
             setOcModelValue("$id/$m")
             refreshOcCustom()
-            "Провайдер «$id» сохранён, модель выбрана: $id/$m." + (if (limited) " Запросы идут через ограничитель (сейчас: ${if (rpmLimit > 0) "$rpmLimit в минуту" else "без лимита — выбери его в Настройках → Модели"})." else "") + " Включи режим OpenCode и пиши."
+            "Провайдер «$id» сохранён, модель выбрана: $id/$m." + (if (rpmLimit > 0) " Лимит: $rpmLimit запросов в минуту (применён автоматически)." else "") + " Включи режим OpenCode и пиши."
         } catch (e: Throwable) { "Не удалось записать: ${e.message}" }
     }
 

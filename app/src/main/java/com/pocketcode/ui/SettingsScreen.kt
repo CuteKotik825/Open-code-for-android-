@@ -340,22 +340,10 @@ fun SettingsScreen(
                 if (vm.rpmLimit > 0) "Сейчас: не чаще 1 запроса в ${"%.0f".format(60.0 / vm.rpmLimit)} с. Агент может казаться «зависшим» — он просто ждёт очереди." else "Сейчас без ограничений.",
                 style = MaterialTheme.typography.bodySmall,
             )
-            val clip = androidx.compose.ui.platform.LocalClipboardManager.current
-            var rateUp by remember { mutableStateOf("") }
-            Text("Лимит для Claude Code, OpenCode и других программ в Linux", style = MaterialTheme.typography.titleSmall)
             Text(
-                "Программы в среде Linux не знают про этот лимит сами. Вставь адрес сервиса (например https://api.anthropic.com) — получишь локальный адрес-ограничитель. Подставь его вместо оригинального: для Claude Code — переменная ANTHROPIC_BASE_URL, для OpenCode — поле Base URL своего провайдера (там есть галочка «через ограничитель»). Работает, пока приложение запущено. Встроенные провайдеры OpenCode (без своего адреса) так ограничить нельзя.",
+                "Применяется автоматически: ко встроенному агенту, к своим провайдерам OpenCode и к Claude Code в терминале приложения (он ходит к Anthropic через локальный ограничитель). Ничего вставлять не нужно. Работает, пока приложение запущено. Встроенные провайдеры OpenCode (без своего адреса) ограничить нельзя.",
                 style = MaterialTheme.typography.bodySmall,
             )
-            OutlinedTextField(value = rateUp, onValueChange = { rateUp = it }, singleLine = true, label = { Text("Адрес сервиса") }, modifier = Modifier.fillMaxWidth())
-            if (rateUp.startsWith("http")) {
-                val w = vm.rateWrapUrl(rateUp)
-                Text(w, style = MaterialTheme.typography.bodySmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { clip.setText(androidx.compose.ui.text.AnnotatedString(w)) }) { Text("Копировать адрес") }
-                    OutlinedButton(onClick = { clip.setText(androidx.compose.ui.text.AnnotatedString("export ANTHROPIC_BASE_URL=$w")) }) { Text("Для Claude Code") }
-                }
-            }
             if (!vm.rateProxyOk) Text("Ограничитель не запустился (порт занят). Перезапусти приложение.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
             if (!models) {
